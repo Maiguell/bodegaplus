@@ -1,0 +1,50 @@
+/* =====================================================
+   Vista Inventario — grilla de tallas por modelo
+   ===================================================== */
+
+.inv-toolbar { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+.inv-toolbar .form-group { min-width: 260px; }
+
+.ubi-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.ubi-tab {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--clr-border);
+  background: transparent;
+  color: var(--clr-text-secondary);
+  font-family: var(--font-main);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ubi-tab.active { border-color: var(--clr-accent); background: var(--clr-accent-light); color: var(--clr-text-primary); }
+
+.grid-wrap { overflow-x: auto; padding: 8px 0; }
+.talla-grid { border-collapse: separate; border-spacing: 4px; width: 100%; }
+.talla-grid th { font-size: 0.72rem; font-weight: 600; color: var(--clr-text-muted); padding: 6px 8px; white-space: nowrap; }
+.talla-grid th small { display: block; font-weight: 400; }
+.talla-grid td.color-cell { font-size: 0.85rem; font-weight: 600; white-space: nowrap; padding: 0 12px 0 20px; }
+.color-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--clr-border); margin-right: 8px; vertical-align: -1px; }
+
+.stock-cell {
+  min-width: 52px;
+  text-align: center;
+  padding: 10px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.9rem;
+  background: rgba(34,197,94,0.12);
+  color: var(--clr-success);
+}
+.stock-cell.low   { background: rgba(245,158,11,0.15); color: var(--clr-warning); }
+.stock-cell.zero  { background: rgba(239,68,68,0.12);  color: var(--clr-danger); }
+.stock-cell.empty { background: transparent; color: var(--clr-text-muted); font-weight: 400; }
+
+.grid-legend { display: flex; gap: 16px; font-size: 0.75rem; color: var(--clr-text-muted); padding: 12px 20px; flex-wrap: wrap; }
+.grid-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.grid-legend .ok::before   { background: var(--clr-success); }
+.grid-legend .low::before  { background: var(--clr-warning); }
+.grid-legend .zero::before { background: var(--clr-danger); }
+
+.inv-summary { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--clr-border); font-size: 0.85rem; color: var(--clr-text-secondary); }
+.inv-summary strong { color: var(--clr-text-primary); }

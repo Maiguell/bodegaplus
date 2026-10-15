@@ -1,0 +1,23 @@
+/* =====================================================
+   Vista Catálogo — Sneakers
+   ===================================================== */
+
+
+.action-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.modal-form { display: flex; flex-direction: column; gap: 16px; }
+.modal-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px; }
+
+.talla-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.talla-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--clr-text-secondary);
+}
+.talla-chip:has(input:checked) { border-color: var(--clr-accent); background: var(--clr-accent-light); color: var(--clr-text-primary); }
+

@@ -1,0 +1,18 @@
+{
+  "name": "bodega-admin-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Frontend SPA para el sistema de Bodega y Administración",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "navigo": "^8.11.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

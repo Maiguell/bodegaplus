@@ -1,0 +1,161 @@
+/* =====================================================
+   Vista Dashboard — Bodega & Administración
+   ===================================================== */
+
+/* ---- Metric Cards Grid ---- */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
+}
+.metric-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.metric-card:hover { transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+.metric-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.metric-card.indigo::before  { background: linear-gradient(90deg, var(--clr-accent), #8b5cf6); }
+.metric-card.green::before   { background: linear-gradient(90deg, var(--clr-success), #16a34a); }
+.metric-card.amber::before   { background: linear-gradient(90deg, var(--clr-warning), #d97706); }
+.metric-card.sky::before     { background: linear-gradient(90deg, var(--clr-info), #0284c7); }
+
+.metric-header { display: flex; align-items: center; justify-content: space-between; }
+.metric-label  { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--clr-text-muted); }
+.metric-icon   {
+  width: 36px; height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+.metric-icon.indigo { background: rgba(99,102,241,0.15); }
+.metric-icon.green  { background: rgba(34,197,94,0.15);  }
+.metric-icon.amber  { background: rgba(245,158,11,0.15); }
+.metric-icon.sky    { background: rgba(56,189,248,0.15); }
+
+.metric-value { font-size: 2.2rem; font-weight: 800; line-height: 1; }
+.metric-trend { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--clr-text-muted); }
+.trend-up   { color: var(--clr-success); }
+.trend-down { color: var(--clr-danger);  }
+
+/* ---- Dashboard Two-Column Layout ---- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+@media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--clr-border);
+}
+
+/* ---- Movimientos recientes ---- */
+.movimiento-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.movimiento-item:last-child { border-bottom: none; }
+.movimiento-icon {
+  width: 36px; height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.movimiento-icon.entrada { background: rgba(34,197,94,0.12); }
+.movimiento-icon.despacho   { background: rgba(56,189,248,0.12); }
+.movimiento-icon.devolucion { background: rgba(245,158,11,0.12); }
+.movimiento-icon.ajuste     { background: var(--clr-accent-light); }
+.movimiento-info { flex: 1; min-width: 0; }
+.movimiento-nombre { font-size: 0.875rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.movimiento-fecha  { font-size: 0.72rem; color: var(--clr-text-muted); margin-top: 2px; }
+.movimiento-cantidad {
+  font-size: 0.875rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.movimiento-cantidad.entrada { color: var(--clr-success); }
+.movimiento-cantidad.despacho   { color: var(--clr-info); }
+.movimiento-cantidad.devolucion { color: var(--clr-warning); }
+.movimiento-cantidad.ajuste     { color: var(--clr-accent-hover); }
+
+/* ---- Alertas de Bajo Stock ---- */
+.alert-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.alert-item:last-child { border-bottom: none; }
+.alert-nombre  { font-size: 0.82rem; font-weight: 500; color: var(--clr-text-secondary); }
+.alert-stock   { white-space: nowrap; margin-left: 8px; font-size: 0.75rem; font-weight: 700; color: var(--clr-warning); }
+.alert-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--clr-warning); flex-shrink: 0; margin-right: 8px; animation: pulse 1.5s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ---- Quick Actions ---- */
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.quick-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 12px;
+  border-radius: var(--radius-md);
+  background: var(--clr-bg-card);
+  border: 1px solid var(--clr-border);
+  cursor: pointer;
+  transition: all var(--transition);
+  color: var(--clr-text-secondary);
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: var(--font-main);
+}
+.quick-action-btn:hover {
+  background: var(--clr-accent-light);
+  border-color: rgba(99,102,241,0.3);
+  color: var(--clr-accent-hover);
+  transform: translateY(-2px);
+}
+.quick-action-btn span { font-size: 1.4rem; }

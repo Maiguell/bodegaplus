@@ -1,0 +1,88 @@
+/* =====================================================
+   Vista Movimientos — Bodega & Administración
+   ===================================================== */
+
+.movimientos-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.8fr;
+  gap: 24px;
+  align-items: flex-start;
+}
+@media (max-width: 960px) { .movimientos-layout { grid-template-columns: 1fr; } }
+
+/* ---- Formulario de Movimiento ---- */
+.movimiento-form-card { padding: 28px; }
+.tipo-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.tipo-btn {
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--clr-border);
+  background: transparent;
+  font-family: var(--font-main);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  color: var(--clr-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.tipo-btn.selected-entrada {
+  border-color: var(--clr-success);
+  background: rgba(34,197,94,0.1);
+  color: var(--clr-success);
+}
+.tipo-btn.selected-despacho   { border-color: var(--clr-info);    background: rgba(56,189,248,0.1);  color: var(--clr-info); }
+.tipo-btn.selected-devolucion { border-color: var(--clr-warning); background: rgba(245,158,11,0.1);  color: var(--clr-warning); }
+.tipo-btn.selected-ajuste     { border-color: var(--clr-accent);  background: var(--clr-accent-light); color: var(--clr-accent-hover); }
+.tipo-btn:hover { border-color: var(--clr-accent); }
+
+.movimiento-form { display: flex; flex-direction: column; gap: 16px; margin-top: 20px; }
+
+/* ---- Historial ---- */
+.historial-card { padding: 24px; }
+.filter-bar     { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+
+.mov-list-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mov-list-item:last-child { border-bottom: none; }
+.mov-tipo-pill {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.mov-tipo-pill.entrada { background: rgba(34,197,94,0.12); }
+.mov-tipo-pill.despacho   { background: rgba(56,189,248,0.12); }
+.mov-tipo-pill.devolucion { background: rgba(245,158,11,0.12); }
+.mov-tipo-pill.ajuste     { background: var(--clr-accent-light); }
+.mov-detail-nombre { font-size: 0.875rem; font-weight: 500; color: var(--clr-text-primary); }
+.mov-detail-obs    { font-size: 0.75rem; color: var(--clr-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mov-qty { font-weight: 800; font-size: 1rem; flex-shrink: 0; }
+.mov-qty.entrada { color: var(--clr-success); }
+.mov-qty.despacho   { color: var(--clr-info); }
+.mov-qty.devolucion { color: var(--clr-warning); }
+.mov-qty.ajuste     { color: var(--clr-accent-hover); }
+
+/* ---- Líneas del movimiento ---- */
+.linea-box { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px dashed var(--clr-border); border-radius: var(--radius-md); }
+.linea-add { display: flex; gap: 10px; align-items: flex-end; }
+.mov-lineas { margin-top: 6px; font-size: 0.78rem; color: var(--clr-text-secondary); }
+.mov-lineas summary { cursor: pointer; color: var(--clr-accent-hover); }
+.mov-lineas ul { margin: 8px 0 0 18px; display: flex; flex-direction: column; gap: 4px; }
