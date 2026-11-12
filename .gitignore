@@ -30,3 +30,6 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Cobertura de pruebas
+backend/coverage/

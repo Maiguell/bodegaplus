@@ -65,6 +65,8 @@ const config = {
     habilitado: e.SEED_DEMO !== 'false',
     adminPassword: e.SEED_ADMIN_PASSWORD || (produccion ? null : 'admin123'),
     operadorPassword: e.SEED_OPERADOR_PASSWORD || (produccion ? null : 'bodega123'),
+    /** Usuarios de demostración por rol (jefe, vendedor, tienda, auditor). Sin clave no se crean. */
+    demoPassword: e.SEED_DEMO_PASSWORD || (produccion ? null : 'demo1234'),
   },
   respaldo: {
     habilitado: e.BACKUP_ENABLED === 'true',

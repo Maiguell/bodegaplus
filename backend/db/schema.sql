@@ -2,12 +2,30 @@
 CREATE DATABASE IF NOT EXISTS bodega_sneakers CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE bodega_sneakers;
 
+-- HU19 / HU20: usuarios con rol, sede y bloqueo por intentos fallidos
 CREATE TABLE IF NOT EXISTS usuarios (
   id INT AUTO_INCREMENT PRIMARY KEY,
   usuario VARCHAR(50) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   nombre VARCHAR(100) NOT NULL,
-  rol ENUM('ADMIN','OPERADOR') NOT NULL DEFAULT 'OPERADOR',
+  rol ENUM('ADMIN','JEFE_BODEGA','OPERADOR','ADMIN_TIENDA','VENDEDOR','AUDITOR') NOT NULL DEFAULT 'OPERADOR',
+  sede_id INT NULL,
+  intentos_fallidos INT NOT NULL DEFAULT 0,
+  bloqueado_hasta DATETIME NULL,
+  ultimo_acceso DATETIME NULL,
+  activo TINYINT(1) NOT NULL DEFAULT 1
+);
+
+-- RNF-08: parámetros de negocio configurables desde la aplicación
+CREATE TABLE IF NOT EXISTS parametros (
+  clave VARCHAR(40) PRIMARY KEY,
+  valor VARCHAR(100) NOT NULL
+);
+
+-- RNF-08 / HU11: causales de ajuste configurables
+CREATE TABLE IF NOT EXISTS causales_ajuste (
+  codigo VARCHAR(30) PRIMARY KEY,
+  nombre VARCHAR(60) NOT NULL,
   activo TINYINT(1) NOT NULL DEFAULT 1
 );
 
@@ -88,6 +106,27 @@ CREATE TABLE IF NOT EXISTS stock (
   FOREIGN KEY (variante_id) REFERENCES variantes(id),
   FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
   CONSTRAINT chk_stock_no_negativo CHECK (cantidad >= 0)
+);
+
+-- HU03: ubicaciones físicas dentro de cada sede (estantería-nivel, ej. B1-E3-N2) y su asignación a referencias
+CREATE TABLE IF NOT EXISTS ubicaciones_bodega (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  ubicacion_id INT NOT NULL,                     -- sede
+  codigo VARCHAR(20) NOT NULL,
+  descripcion VARCHAR(100) NULL,
+  activo TINYINT(1) NOT NULL DEFAULT 1,
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  UNIQUE KEY uq_ubic_bodega (ubicacion_id, codigo)
+);
+
+CREATE TABLE IF NOT EXISTS referencia_ubicacion (
+  modelo_id INT NOT NULL,
+  ubicacion_id INT NOT NULL,                     -- sede
+  ubicacion_bodega_id INT NOT NULL,
+  PRIMARY KEY (modelo_id, ubicacion_id),
+  FOREIGN KEY (modelo_id) REFERENCES modelos(id),
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (ubicacion_bodega_id) REFERENCES ubicaciones_bodega(id)
 );
 
 CREATE TABLE IF NOT EXISTS proveedores (
@@ -191,7 +230,7 @@ CREATE TABLE IF NOT EXISTS movimientos (
   proveedor_id INT NULL,
   origen_id INT NULL,
   destino_id INT NULL,
-  motivo ENUM('TALLA_INCORRECTA','DEFECTO','SOBRANTE','CONTEO','MERMA','OTRO','AVERIA','PERDIDA','ERROR_CONTEO') NULL,
+  motivo VARCHAR(30) NULL,                       -- motivo de devolución o causal de ajuste (configurable)
   referencia VARCHAR(60) NULL,
   observacion VARCHAR(255) NULL,
   orden_compra_id INT NULL,
@@ -257,7 +296,7 @@ CREATE TABLE IF NOT EXISTS conteo_detalle (
 CREATE TABLE IF NOT EXISTS ajustes (
   id INT AUTO_INCREMENT PRIMARY KEY,
   ubicacion_id INT NOT NULL,
-  causal ENUM('AVERIA','PERDIDA','ERROR_CONTEO','OTRO') NOT NULL,
+  causal VARCHAR(30) NOT NULL,                   -- codigo de causales_ajuste
   observacion VARCHAR(255) NOT NULL,
   estado ENUM('PENDIENTE','APROBADO','RECHAZADO') NOT NULL DEFAULT 'PENDIENTE',
   usuario_id INT NOT NULL,

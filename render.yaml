@@ -1,0 +1,38 @@
+# HT07 — Despliegue gratuito en Render (Blueprint). Render → New → Blueprint → este repositorio.
+# La base MySQL va en Aiven (plan gratuito); sus datos se ingresan en el panel de Render (sync: false),
+# nunca en el repositorio.
+services:
+  - type: web
+    name: bodega-sneakers
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/salud
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true          # Render genera un secreto aleatorio
+      - key: DB_HOST
+        sync: false                  # de Aiven
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: bodega_sneakers
+      - key: DB_SSL
+        value: "true"
+      - key: DB_SSL_REJECT_UNAUTHORIZED
+        value: "false"               # Aiven usa su propia CA; la conexión sigue cifrada
+      - key: SEED_ADMIN_PASSWORD
+        sync: false                  # claves iniciales (8+ caracteres, letras y números)
+      - key: SEED_OPERADOR_PASSWORD
+        sync: false
+      - key: SEED_DEMO_PASSWORD
+        sync: false
+      - key: BACKUP_ENABLED
+        value: "false"               # el disco del plan gratuito es temporal: se usan los respaldos de Aiven

@@ -13,7 +13,9 @@ const express = require('express');
 const { getPool } = require('../db');
 const { HttpError, h } = require('../lib/http');
 const { authMiddleware } = require('../lib/auth');
+const { requiere, exigirSede } = require('../lib/permisos');
 const inv = require('../lib/inventario');
+const parametros = require('../lib/parametros');
 
 const router = express.Router();
 const db = () => getPool();
@@ -71,10 +73,11 @@ router.get('/reservas', authMiddleware, h(async (req, res) => {
 }));
 
 /** POST /api/reservas { varianteId, ubicacionId, cantidad=1, clienteNombre, clienteTelefono?, horas=48 } */
-router.post('/reservas', authMiddleware, h(async (req, res) => {
+router.post('/reservas', authMiddleware, requiere('ventas'), h(async (req, res) => {
   const { varianteId, ubicacionId, clienteNombre, clienteTelefono } = req.body ?? {};
   const cantidad = Number(req.body?.cantidad ?? 1);
-  const horas = Number(req.body?.horas ?? 48);
+  const horas = Number(req.body?.horas ?? await parametros.obtener('RESERVA_HORAS_DEFECTO'));
+  exigirSede(req.user, ubicacionId, 'reservar');
   const nombre = String(clienteNombre ?? '').trim();
   if (!nombre) throw new HttpError(400, 'El nombre del cliente es requerido.');
   if (!Number.isInteger(cantidad) || cantidad < 1) throw new HttpError(400, 'Cantidad inválida.');
@@ -99,10 +102,11 @@ router.post('/reservas', authMiddleware, h(async (req, res) => {
 }));
 
 /** POST /api/reservas/:id/vender { referencia? } - Convierte la reserva en venta. */
-router.post('/reservas/:id/vender', authMiddleware, h(async (req, res) => {
+router.post('/reservas/:id/vender', authMiddleware, requiere('ventas'), h(async (req, res) => {
   const vencida = await inv.enTransaccion(async (conn) => {
     const [[r]] = await conn.query('SELECT *, vence_en <= NOW() AS vencida FROM reservas WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!r) throw new HttpError(404, 'Reserva no encontrada.');
+    exigirSede(req.user, r.ubicacion_id, 'vender');
     if (r.estado !== 'ACTIVA') throw new HttpError(409, `La reserva ya está ${r.estado.toLowerCase()}.`);
     if (r.vencida) {
       await liberarReserva(conn, r, 'VENCIDA', r.usuario_id, 'Vencimiento automático de la reserva');
@@ -124,10 +128,11 @@ router.post('/reservas/:id/vender', authMiddleware, h(async (req, res) => {
 }));
 
 /** POST /api/reservas/:id/cancelar */
-router.post('/reservas/:id/cancelar', authMiddleware, h(async (req, res) => {
+router.post('/reservas/:id/cancelar', authMiddleware, requiere('ventas'), h(async (req, res) => {
   await inv.enTransaccion(async (conn) => {
     const [[r]] = await conn.query('SELECT * FROM reservas WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!r) throw new HttpError(404, 'Reserva no encontrada.');
+    exigirSede(req.user, r.ubicacion_id, 'cancelar reservas');
     if (r.estado !== 'ACTIVA') throw new HttpError(409, `La reserva ya está ${r.estado.toLowerCase()}.`);
     await liberarReserva(conn, r, 'CANCELADA', req.user.id, 'Reserva cancelada');
   });
@@ -192,6 +197,14 @@ router.get('/disponibilidad', authMiddleware, h(async (req, res) => {
       total: Object.values(disponible).reduce((a, b) => a + b, 0),
     });
   }
+  // HU03: ubicación física (estantería-nivel) de la referencia en cada sede
+  const modeloIds = [...new Set(variantes.map((v) => v.modeloId))];
+  const [fisicas] = modeloIds.length
+    ? await db().query(`SELECT ru.modelo_id, ru.ubicacion_id, ub.codigo FROM referencia_ubicacion ru
+                        JOIN ubicaciones_bodega ub ON ub.id = ru.ubicacion_bodega_id WHERE ru.modelo_id IN (?)`, [modeloIds]) : [[]];
+  for (const g of grupos.values()) {
+    g.ubicacionesFisicas = Object.fromEntries(fisicas.filter((f) => f.modelo_id === g.modeloId).map((f) => [f.ubicacion_id, f.codigo]));
+  }
   res.json({ q, ubicaciones, resultados: [...grupos.values()], ms: Date.now() - inicio });
 }));
 
@@ -202,8 +215,9 @@ router.get('/disponibilidad', authMiddleware, h(async (req, res) => {
  * Un solo movimiento CAMBIO: suma la talla devuelta y descuenta la nueva en la misma sede.
  * Si la talla nueva no alcanza, responde 409 con las sedes que sí la tienen.
  */
-router.post('/cambios', authMiddleware, h(async (req, res) => {
+router.post('/cambios', authMiddleware, requiere('ventas'), h(async (req, res) => {
   const { ubicacionId, facturaOriginal, observacion } = req.body ?? {};
+  exigirSede(req.user, ubicacionId, 'registrar cambios');
   const devuelve = Number(req.body?.devuelveVarianteId), lleva = Number(req.body?.llevaVarianteId);
   const cantidad = Number(req.body?.cantidad ?? 1);
   const factura = String(facturaOriginal ?? '').trim();

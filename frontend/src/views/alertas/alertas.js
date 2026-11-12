@@ -8,7 +8,7 @@
 import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
-import { getUser } from '../../services/authService.js';
+import { getUser, puede, restringidoASede } from '../../services/authService.js';
 import { getCatalogo } from '../../services/catalogoService.js';
 import { getAlertas, fijarMinimo, enviarTraslado } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
@@ -20,7 +20,8 @@ let sede = '';
 let estado = 'ACTIVA';
 let reloj = null;
 
-const esAdmin = () => getUser()?.rol === 'ADMIN';
+/** Permiso del rol (HU19); el backend valida de nuevo. */
+const esAdmin = () => puede('alertas.minimos');
 const bodega = () => ubicaciones.find((u) => u.tipo === 'BODEGA');
 
 const render = () => {
@@ -52,7 +53,7 @@ const render = () => {
           <tr>
             <td>${esc(a.marca)} ${esc(a.modelo)} · ${esc(a.color)} · <strong>EU ${a.eu}</strong><br><span class="product-sku">${esc(a.sku)}</span></td>
             <td class="${a.stock === 0 ? 'kardex-neg' : ''}" style="font-weight:700;">${numero(a.stock)}</td>
-            <td>${esAdmin()
+            <td>${esAdmin() && (!restringidoASede() || a.ubicacionId === getUser().sedeId)
               ? `<input type="number" min="0" class="form-input op-input-sm" value="${a.minimo}" data-min-var="${a.varianteId}" data-min-ubi="${a.ubicacionId}" title="${a.minimoPropio ? 'Mínimo propio de esta sede' : 'Mínimo general de la variante'}" />`
               : a.minimo}</td>
             <td>${a.estado === 'ACTIVA' ? `<strong>${numero(a.sugerido)}</strong>` : '—'}</td>

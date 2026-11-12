@@ -12,6 +12,7 @@ import { registrarMovimiento, getMovimientos } from '../../services/movimientosS
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
 import { showToast } from '../../utils/toast.js';
 import { esc, fechaHora, numero, TIPOS_MOV, MOTIVOS, rutaMovimiento } from '../../utils/format.js';
+import { sedesOperables, puede } from '../../services/authService.js';
 import { buscarVariante, mensajeSugerencias } from '../../utils/variantes.js';
 
 /** Tipos que se registran desde este formulario. Los ajustes van por la vista Ajustes (requieren aprobación, HU11). */
@@ -30,7 +31,7 @@ let lineas = [];
 let filtroHistorial = 'todos';
 
 const bodega = () => catalogo.ubicaciones.find((u) => u.tipo === 'BODEGA');
-const locales = () => catalogo.ubicaciones.filter((u) => u.tipo === 'LOCAL');
+const locales = () => sedesOperables(catalogo.ubicaciones).filter((u) => u.tipo === 'LOCAL');
 const descVariante = (v) => `${v.marca} ${v.modelo} · ${v.color} · EU ${v.eu}`;
 
 // ── Formulario ──────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ const renderCamposTipo = () => {
         <select id="mov-motivo" class="form-select">${motivos}</select></div>`,
     VENTA: `
       <div class="form-group"><label class="form-label" for="mov-ubicacion">Sede que vende *</label>
-        <select id="mov-ubicacion" class="form-select">${opts([...locales(), ...catalogo.ubicaciones.filter((u) => u.tipo !== 'LOCAL')])}</select></div>`,
+        <select id="mov-ubicacion" class="form-select">${opts([...locales(), ...sedesOperables(catalogo.ubicaciones).filter((u) => u.tipo !== 'LOCAL')])}</select></div>`,
   };
   el.innerHTML = campos[tipo];
   el.querySelectorAll('select').forEach((s) => s.addEventListener('change', actualizarDisponible));
@@ -204,8 +205,9 @@ export const initMovimientos = async () => {
     showToast(err.message ?? 'Error al cargar datos.', 'error');
   }
 
-  const tipos = TIPOS_FORM;
-  tipo = 'ENTRADA';
+  // HU19: cada rol ve solo los tipos que puede registrar
+  const tipos = TIPOS_FORM.filter((t) => puede(t === 'VENTA' ? 'ventas' : 'movimientos.bodega'));
+  tipo = tipos[0] ?? 'VENTA';
   lineas = [];
   filtroHistorial = 'todos';
 
@@ -225,7 +227,7 @@ export const initMovimientos = async () => {
             <div class="card movimiento-form-card">
               <h2 class="section-title">Registrar movimiento</h2>
               <div class="tipo-selector">
-                ${tipos.map((t) => `<button type="button" class="tipo-btn ${t === 'ENTRADA' ? 'selected-entrada' : ''}" data-tipo="${t}">${TIPOS_MOV[t].label}</button>`).join('')}
+                ${tipos.map((t) => `<button type="button" class="tipo-btn ${t === tipo ? `selected-${t.toLowerCase()}` : ''}" data-tipo="${t}">${TIPOS_MOV[t].label}</button>`).join('')}
               </div>
 
               <form id="movimiento-form" class="movimiento-form" novalidate>

@@ -2,11 +2,12 @@
  * @module loginView
  * @description Vista y controlador de la pantalla de autenticación.
  * Gestiona el formulario de login, valida los campos en el cliente,
- * envía las credenciales al backend vía authService y navega al dashboard.
+ * envía las credenciales al backend vía authService y navega al panel del rol.
+ * Tras 5 intentos fallidos el backend bloquea la cuenta 15 minutos (HU20) y aquí se muestra el aviso.
  */
 
 import './login.css';
-import { login, isAuthenticated } from '../../services/authService.js';
+import { login, isAuthenticated, rutaInicio } from '../../services/authService.js';
 import { renderView } from '../../router.js';
 
 /** Markup HTML estático de la vista de login. */
@@ -118,7 +119,7 @@ const loginHTML = `
 export const initLogin = () => {
   // Guard: redirigir si ya hay sesión
   if (isAuthenticated()) {
-    window.location.hash = '#/dashboard';
+    window.location.hash = rutaInicio();
     return;
   }
 
@@ -155,8 +156,8 @@ const attachLoginListeners = () => {
 
     try {
       await login(usuario, password);
-      // Navegación al dashboard tras login exitoso
-      window.location.hash = '#/dashboard';
+      // HU20: cada rol entra a su panel (vendedor → disponibilidad, auditor → informes…)
+      window.location.hash = rutaInicio();
     } catch (err) {
       showError(errorBox, err.message ?? 'Credenciales incorrectas. Intenta de nuevo.');
     } finally {

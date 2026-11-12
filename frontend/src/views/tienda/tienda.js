@@ -9,6 +9,7 @@ import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
+import { sedesOperables } from '../../services/authService.js';
 import { registrarCambio, getReservas, crearReserva, venderReserva, cancelarReserva } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
 import { esc, fechaHora, badgeEstado } from '../../utils/format.js';
@@ -22,7 +23,7 @@ let reloj = null;
 
 const opts = (lista) => lista.map((u) => `<option value="${u.id}">${esc(u.nombre)}</option>`).join('');
 /** Locales primero: son las sedes que atienden clientes. */
-const sedesTienda = () => [...ubicaciones.filter((u) => u.tipo === 'LOCAL'), ...ubicaciones.filter((u) => u.tipo !== 'LOCAL')];
+const sedesTienda = () => sedesOperables([...ubicaciones.filter((u) => u.tipo === 'LOCAL'), ...ubicaciones.filter((u) => u.tipo !== 'LOCAL')]);
 
 const restante = (iso) => {
   const ms = new Date(iso) - Date.now();

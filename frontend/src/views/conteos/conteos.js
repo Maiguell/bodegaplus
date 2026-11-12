@@ -9,7 +9,7 @@ import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
 import { abrirModal } from '../../components/modal.js';
-import { getUser } from '../../services/authService.js';
+import { getUser, puede } from '../../services/authService.js';
 import { getCatalogo } from '../../services/catalogoService.js';
 import { getConteos, getConteo, iniciarConteo, capturarConteo, cerrarConteo, cancelarConteo } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
@@ -22,7 +22,8 @@ let actual = null;
 let vista = 'todas'; // todas | contadas | pendientes | diferencias
 let texto = '';
 
-const esAdmin = () => getUser()?.rol === 'ADMIN';
+/** Permiso del rol (HU19); el backend valida de nuevo. */
+const esAdmin = () => puede('conteos.gestionar');
 const dif = (d) => (d.contada === null ? '' : d.contada - d.sistema);
 
 const renderLista = () => {
@@ -83,6 +84,12 @@ const renderPanel = (resultado) => {
       ${abierto && esAdmin() ? `<div class="op-item-actions">
         <button type="button" id="cf-cerrar" class="btn btn-sm btn-primary">Cerrar conteo</button>
         <button type="button" id="cf-cancelar" class="btn btn-sm btn-secondary">Cancelar</button></div>` : ''}
+      ${actual.estado === 'CERRADO' ? '<button type="button" id="cf-acta" class="btn btn-sm btn-secondary no-print">Imprimir acta</button>' : ''}
+    </div>
+    <div class="solo-impresion" style="margin-bottom:12px;">
+      <h1 style="font-size:18px;margin:0;">Acta de conteo físico ${esc(actual.codigo)}</h1>
+      <p style="margin:4px 0;">Sede: <strong>${esc(actual.ubicacion)}</strong> · Iniciado: ${fechaHora(actual.fechaInicio)} por ${esc(actual.usuario)} ·
+        Cerrado: ${actual.fechaCierre ? fechaHora(actual.fechaCierre) : '—'}</p>
     </div>
     ${resultado ?? ''}
     ${abierto ? `
@@ -91,7 +98,7 @@ const renderPanel = (resultado) => {
           <input id="cf-scan" class="form-input" placeholder="Escanea: cada lectura suma 1 par" autocomplete="off" /></div>
       </div>
       <div id="cf-ultimo" class="op-hint" style="margin-bottom:8px;"></div>` : ''}
-    <div class="op-row" style="margin-bottom:12px;">
+    <div class="op-row no-print" style="margin-bottom:12px;">
       <div class="form-group" style="flex:2;"><label class="form-label" for="cf-buscar">Buscar</label>
         <input id="cf-buscar" class="form-input" placeholder="SKU, modelo, color o talla" value="${esc(texto)}" /></div>
       <div class="form-group"><label class="form-label" for="cf-vista">Mostrar</label>
@@ -100,8 +107,21 @@ const renderPanel = (resultado) => {
             .map(([k, v]) => `<option value="${k}" ${vista === k ? 'selected' : ''}>${v}</option>`).join('')}
         </select></div>
     </div>
-    <div id="cf-tabla" style="overflow-x:auto;"></div>`;
+    <div id="cf-tabla" style="overflow-x:auto;"></div>
+    <div class="solo-impresion" style="margin-top:40px;display:none;">
+      <div style="display:flex;gap:48px;">
+        <div style="flex:1;border-top:1px solid #000;padding-top:4px;">Responsable del conteo</div>
+        <div style="flex:1;border-top:1px solid #000;padding-top:4px;">Jefe de bodega</div>
+        <div style="flex:1;border-top:1px solid #000;padding-top:4px;">Administrador de la sede</div>
+      </div>
+    </div>`;
   renderTabla();
+  document.getElementById('cf-acta')?.addEventListener('click', () => {
+    // SCRUM-44: acta con todas las variantes contadas (no solo las diferencias)
+    vista = 'contadas'; texto = '';
+    renderTabla();
+    window.print();
+  });
 
   document.getElementById('cf-buscar').addEventListener('input', (e) => { texto = e.target.value.trim(); renderTabla(); });
   document.getElementById('cf-vista').addEventListener('change', (e) => { vista = e.target.value; renderTabla(); });
@@ -216,7 +236,7 @@ export const initConteos = async () => {
           <p class="page-subtitle">Compara lo contado con lo que dice el sistema y genera los ajustes para aprobación.</p>
         </div></header>
         <div class="op-layout">
-          <div>
+          <div class="no-print">
             ${esAdmin() ? `<div class="card op-card">
               <h2 class="section-title">Iniciar conteo</h2>
               <form id="cf-form" class="op-form" novalidate>

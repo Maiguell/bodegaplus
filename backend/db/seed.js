@@ -8,10 +8,13 @@
 
 const bcrypt = require('bcryptjs');
 const { buildSku } = require('../utils/sku');
+const { cargarEscenarios } = require('./escenarios');
 
 // US → EU (la talla CO usa la escala EU)
 const TALLAS_HOMBRE = [[7, 40], [7.5, 40.5], [8, 41], [8.5, 42], [9, 42.5], [9.5, 43], [10, 44], [10.5, 44.5], [11, 45]];
 const TALLAS_MUJER  = [[5, 35.5], [5.5, 36], [6, 36.5], [6.5, 37.5], [7, 38], [7.5, 38.5], [8, 39], [8.5, 40]];
+// HT03: tallas 34–44 (escala colombiana = EU) para referencias unisex
+const TALLAS_UNISEX = [[3, 34], [4, 35], [4.5, 36], [5.5, 37], [6, 38], [7, 39], [7.5, 40], [8.5, 41], [9, 42], [10, 43], [10.5, 44]];
 
 const MARCAS     = ['Nike', 'Adidas', 'New Balance', 'Puma'];
 const CATEGORIAS = ['Running', 'Lifestyle', 'Basket', 'Skate'];
@@ -40,7 +43,7 @@ async function seed(pool, claves) {
   if (!claves?.adminPassword || !claves?.operadorPassword) {
     throw new Error('Define SEED_ADMIN_PASSWORD y SEED_OPERADOR_PASSWORD para crear los usuarios iniciales.');
   }
-  // Usuarios
+  // Usuarios (las claves de demo cumplen la política de RNF-05: 8+ caracteres con letras y números)
   const hash = (p) => bcrypt.hashSync(p, 10);
   await pool.query('INSERT INTO usuarios (usuario, password_hash, nombre, rol) VALUES ?', [[
     ['admin',  hash(claves.adminPassword),    'Administrador',   'ADMIN'],
@@ -65,6 +68,7 @@ async function seed(pool, claves) {
   await pool.query('INSERT INTO tallas (genero, us, eu) VALUES ?', [[
     ...TALLAS_HOMBRE.map(([us, eu]) => ['HOMBRE', us, eu]),
     ...TALLAS_MUJER.map(([us, eu]) => ['MUJER', us, eu]),
+    ...TALLAS_UNISEX.map(([us, eu]) => ['UNISEX', us, eu]),
   ]]);
 
   const q = async (sql, p) => (await pool.query(sql, p))[0];
@@ -97,6 +101,19 @@ async function seed(pool, claves) {
   await pool.query('INSERT INTO stock (variante_id, ubicacion_id, cantidad) VALUES ?', [filas]);
 
   await seedOrdenesCompra(pool);
+  await cargarEscenarios(pool);
+
+  // HU19: un usuario de demostración por rol, con sede donde aplica
+  if (claves.demoPassword) {
+    const sede = async (nombre) => (await q('SELECT id FROM ubicaciones WHERE nombre = ?', [nombre]))[0]?.id ?? null;
+    await pool.query('UPDATE usuarios SET sede_id = ? WHERE usuario = ?', [await sede('Bodega Central'), 'bodega']);
+    await pool.query('INSERT INTO usuarios (usuario, password_hash, nombre, rol, sede_id) VALUES ?', [[
+      ['jefe',     hash(claves.demoPassword), 'Jefe de Bodega',       'JEFE_BODEGA',  await sede('Bodega Central')],
+      ['tienda',   hash(claves.demoPassword), 'Administradora Norte', 'ADMIN_TIENDA', await sede('Local Norte')],
+      ['vendedor', hash(claves.demoPassword), 'Vendedor Centro',      'VENDEDOR',     await sede('Local Centro')],
+      ['auditor',  hash(claves.demoPassword), 'Auditor',              'AUDITOR',      null],
+    ]]);
+  }
 }
 
 /** Órdenes de compra pendientes para probar la recepción contra OC (HU05). */

@@ -10,26 +10,53 @@ import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
 import { abrirModal } from '../../components/modal.js';
 import { getDisponibilidad, crearReserva } from '../../services/operacionesService.js';
+import { getInventario, getCatalogo } from '../../services/catalogoService.js';
+import { puede, sedesOperables } from '../../services/authService.js';
 import { showToast } from '../../utils/toast.js';
 import { esc, numero, moneda } from '../../utils/format.js';
 
-/** @type {{q: string, ubicaciones: object[], resultados: object[], ms: number}|null} */
+/** @type {{q: string, ubicaciones: object[], resultados: object[], ms: number, sinConexion?: boolean}|null} */
 let datos = null;
+
+/** ¿Puede reservar en esa sede? (HU14 + HU19: vendedores solo en su sede; nunca sin conexión) */
+const puedeReservar = (ubicacionId) =>
+  !datos?.sinConexion && puede('ventas') && sedesOperables(datos.ubicaciones).some((u) => u.id === ubicacionId);
 
 const celda = (t, u) => {
   const n = t.disponible[u.id] ?? 0;
-  const r = t.reservado[u.id] ?? 0;
+  const r = t.reservado?.[u.id] ?? 0;
   const res = r ? `<span class="disp-res">${r} reservada${r > 1 ? 's' : ''}</span>` : '';
-  return n > 0
+  if (n <= 0) return `<td class="disp-cero">0${res}</td>`;
+  return puedeReservar(u.id)
     ? `<td><button type="button" class="disp-celda-btn" data-var="${t.varianteId}" data-ubi="${u.id}" title="Reservar en ${esc(u.nombre)}">${numero(n)}</button>${res}</td>`
-    : `<td class="disp-cero">0${res}</td>`;
+    : `<td style="font-weight:700;">${numero(n)}${res}</td>`;
 };
+
+/**
+ * RNF-07: sin conexión, arma la matriz con el último inventario descargado (mismo formato que el servidor).
+ * Busca por SKU, código de barras, marca o referencia.
+ */
+async function disponibilidadSinConexion(q) {
+  const [inv, cat] = await Promise.all([getInventario(), getCatalogo()]);
+  const t = q.toUpperCase();
+  const exactos = new Set(inv.filter((v) => v.sku.toUpperCase() === t || v.codigoBarras === q).map((v) => v.modeloId));
+  const coincide = (v) => exactos.has(v.modeloId) || `${v.marca} ${v.modelo}`.toUpperCase().includes(t);
+  const grupos = new Map();
+  for (const v of inv.filter(coincide)) {
+    const k = `${v.modeloId}-${v.color}`;
+    if (!grupos.has(k)) grupos.set(k, { modeloId: v.modeloId, modelo: v.modelo, marca: v.marca, color: v.color, colorHex: v.colorHex, precio: v.precio, tallas: [] });
+    grupos.get(k).tallas.push({ varianteId: v.id, sku: v.sku, eu: v.eu, us: v.us, exacta: v.sku.toUpperCase() === t || v.codigoBarras === q, disponible: v.stock, reservado: {}, total: v.total });
+  }
+  return { q, ubicaciones: cat.ubicaciones, resultados: [...grupos.values()], ms: 0, sinConexion: true };
+}
 
 const renderResultados = () => {
   const el = document.getElementById('disp-resultados');
   if (!datos) { el.innerHTML = ''; return; }
   const { ubicaciones, resultados, ms } = datos;
-  document.getElementById('disp-meta').textContent = `${resultados.length} referencia(s) · respuesta en ${ms} ms`;
+  document.getElementById('disp-meta').textContent = datos.sinConexion
+    ? `${resultados.length} referencia(s) · SIN CONEXIÓN: datos del último inventario descargado, pueden estar desactualizados`
+    : `${resultados.length} referencia(s) · respuesta en ${ms} ms`;
   el.innerHTML = resultados.length ? resultados.map((g) => `
     <div class="card op-card disp-grupo">
       <div class="disp-grupo-head">
@@ -39,7 +66,8 @@ const renderResultados = () => {
         <span class="op-item-meta" style="margin-left:auto;">${moneda(g.precio)}</span>
       </div>
       <div style="overflow-x:auto;"><table class="data-table disp-matriz">
-        <thead><tr><th>Talla</th>${ubicaciones.map((u) => `<th>${esc(u.nombre)}</th>`).join('')}<th>Total</th><th></th></tr></thead>
+        <thead><tr><th>Talla</th>${ubicaciones.map((u) => `<th>${esc(u.nombre)}${g.ubicacionesFisicas?.[u.id]
+          ? `<br><span class="product-sku" title="Ubicación física">${esc(g.ubicacionesFisicas[u.id])}</span>` : ''}</th>`).join('')}<th>Total</th><th></th></tr></thead>
         <tbody>${g.tallas.map((t) => `
           <tr class="${t.exacta ? 'disp-exacta' : ''}">
             <td><strong>EU ${t.eu}</strong> <span class="op-item-meta">US ${t.us}</span></td>
@@ -58,7 +86,12 @@ const buscar = async () => {
   if (q.length < 2) return showToast('Escribe al menos 2 caracteres o escanea un código.', 'error');
   document.getElementById('disp-meta').textContent = 'Buscando…';
   try {
-    datos = await getDisponibilidad(q);
+    try {
+      datos = await getDisponibilidad(q);
+    } catch (err) {
+      if (!err.sinConexion) throw err;
+      datos = await disponibilidadSinConexion(q); // RNF-07
+    }
     renderResultados();
     input.select(); // listo para el siguiente escaneo
   } catch (err) {
@@ -123,7 +156,7 @@ export const initDisponibilidad = async () => {
             <button type="button" id="disp-buscar" class="btn btn-primary">Buscar</button>
           </div>
           <div id="disp-meta" class="op-hint" style="margin-top:8px;"></div>
-          <p class="op-hint">Toca un número para reservar esa unidad para un cliente.</p>
+          <p class="op-hint">${puede('ventas') ? 'Toca un número para reservar esa unidad para un cliente. ' : ''}Si se cae la conexión, puedes seguir consultando la última disponibilidad descargada.</p>
         </div>
         <div id="disp-resultados"></div>
       </div></main>
@@ -138,4 +171,7 @@ export const initDisponibilidad = async () => {
     const b = e.target.closest('[data-var]');
     if (b) reservar(Number(b.dataset.var), Number(b.dataset.ubi));
   });
+
+  // RNF-07: descarga en segundo plano el inventario completo para poder consultar sin conexión
+  Promise.all([getInventario(), getCatalogo()]).catch(() => {});
 };

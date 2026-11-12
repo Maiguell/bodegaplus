@@ -8,7 +8,7 @@
 const jwt = require('jsonwebtoken');
 const { jwtSecret: JWT_SECRET } = require('./config');
 
-const generarToken = (u) => jwt.sign({ id: u.id, usuario: u.usuario, rol: u.rol }, JWT_SECRET, { expiresIn: '8h' });
+const generarToken = (u) => jwt.sign({ id: u.id, usuario: u.usuario, rol: u.rol, sedeId: u.sedeId ?? null }, JWT_SECRET, { expiresIn: '8h' });
 
 const authMiddleware = (req, res, next) => {
   const header = req.headers['authorization'];

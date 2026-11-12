@@ -1,7 +1,7 @@
 /**
  * @file routes/control.js
  * @description Control de diferencias de inventario:
- *   HU11 — Ajustes con causal sujetos a aprobación del jefe de bodega (rol ADMIN).
+ *   HU11 — Ajustes con causal (configurable) sujetos a aprobación del jefe de bodega.
  *   HU12 — Conteo físico por sede: congela saldos, captura con lector o a mano, compara y propone ajustes.
  *   HU15 — Alertas de stock mínimo por talla y sede, con sugeridos de reposición.
  */
@@ -11,14 +11,17 @@
 const express = require('express');
 const { getPool } = require('../db');
 const { HttpError, h } = require('../lib/http');
-const { authMiddleware, soloAdmin } = require('../lib/auth');
+const { authMiddleware } = require('../lib/auth');
+const { requiere, exigirSede } = require('../lib/permisos');
 const inv = require('../lib/inventario');
+const parametros = require('../lib/parametros');
 const { evaluarAlerta } = require('../lib/alertas');
+const { validarCausal, sugeridoReposicion } = require('../lib/reglas');
 
 const router = express.Router();
 const db = () => getPool();
 
-const CAUSALES = ['AVERIA', 'PERDIDA', 'ERROR_CONTEO', 'OTRO'];
+const causalesActivas = async () => (await db().query('SELECT codigo FROM causales_ajuste WHERE activo = 1'))[0].map((c) => c.codigo);
 const codigo = (prefijo, id) => `${prefijo}-${String(id).padStart(4, '0')}`;
 
 const DESC_VARIANTE = `v.sku, m.nombre AS modelo, ma.nombre AS marca, co.nombre AS color, t.eu`;
@@ -28,7 +31,8 @@ const JOIN_VARIANTE = `JOIN variantes v ON v.id = d.variante_id JOIN modelos m O
 // ── HU11: Ajustes ─────────────────────────────────────────────────────────────
 
 const SELECT_AJUSTES = `
-  SELECT a.id, CONCAT('AJ-', LPAD(a.id, 4, '0')) AS codigo, a.estado, a.causal, a.observacion, a.fecha,
+  SELECT a.id, CONCAT('AJ-', LPAD(a.id, 4, '0')) AS codigo, a.estado, a.causal,
+         (SELECT ca.nombre FROM causales_ajuste ca WHERE ca.codigo = a.causal) AS causalNombre, a.observacion, a.fecha,
          a.fecha_resolucion AS fechaResolucion, a.comentario_resolucion AS comentarioResolucion,
          a.ubicacion_id AS ubicacionId, u.nombre AS ubicacion, us.nombre AS usuario, ur.nombre AS resueltoPor,
          a.conteo_id AS conteoId, a.movimiento_id AS movimientoId,
@@ -65,15 +69,18 @@ router.get('/ajustes', authMiddleware, h(async (req, res) => {
   res.json(rows);
 }));
 
-/** POST /api/ajustes { ubicacionId, causal, observacion, lineas: [{ varianteId, cantidad(±) }] } — cualquier usuario */
-router.post('/ajustes', authMiddleware, h(async (req, res) => {
-  const { ubicacionId, causal } = req.body ?? {};
+/** POST /api/ajustes { ubicacionId, causal, observacion, lineas: [{ varianteId, cantidad(±) }] } — auxiliar, jefe o tienda */
+router.post('/ajustes', authMiddleware, requiere('ajustes.registrar'), h(async (req, res) => {
+  const { ubicacionId } = req.body ?? {};
   const observacion = String(req.body?.observacion ?? '').trim();
-  if (!CAUSALES.includes(causal)) throw new HttpError(400, 'Indica la causal: avería, pérdida, error de conteo u otra.');
+  const vc = validarCausal(req.body?.causal, await causalesActivas());
+  if (!vc.ok) throw new HttpError(400, vc.error);
+  const causal = vc.causal;
   if (!observacion) throw new HttpError(400, 'La observación es obligatoria.');
   const lineas = inv.consolidarLineas(req.body?.lineas, { permitirNegativos: true });
   if (lineas.some(([, c]) => c === 0)) throw new HttpError(400, 'Las diferencias no pueden ser cero.');
   const sede = await inv.sedeActiva(db(), ubicacionId);
+  exigirSede(req.user, sede.id, 'registrar ajustes');
   await inv.validarVariantes(db(), lineas.map(([id]) => id));
   // No se puede restar más de lo que hay: ese ajuste nunca podría aprobarse
   const [saldos] = await db().query(
@@ -87,7 +94,7 @@ router.post('/ajustes', authMiddleware, h(async (req, res) => {
 }));
 
 /** POST /api/ajustes/:id/aprobar { comentario? } — solo el jefe de bodega; aquí sí se mueve el stock. */
-router.post('/ajustes/:id/aprobar', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/ajustes/:id/aprobar', authMiddleware, requiere('ajustes.aprobar'), h(async (req, res) => {
   await inv.enTransaccion(async (conn) => {
     const [[a]] = await conn.query('SELECT * FROM ajustes WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!a) throw new HttpError(404, 'Ajuste no encontrado.');
@@ -109,7 +116,7 @@ router.post('/ajustes/:id/aprobar', authMiddleware, soloAdmin, h(async (req, res
 }));
 
 /** POST /api/ajustes/:id/rechazar { comentario } */
-router.post('/ajustes/:id/rechazar', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/ajustes/:id/rechazar', authMiddleware, requiere('ajustes.aprobar'), h(async (req, res) => {
   const comentario = String(req.body?.comentario ?? '').trim();
   if (!comentario) throw new HttpError(400, 'Indica el motivo del rechazo.');
   const [r] = await db().query(
@@ -154,7 +161,7 @@ router.get('/conteos', authMiddleware, h(async (req, res) => {
 router.get('/conteos/:id', authMiddleware, h(async (req, res) => res.json(await leerConteo(db(), req.params.id))));
 
 /** POST /api/conteos { ubicacionId, observacion? } (jefe de bodega) — congela el saldo de cada variante activa. */
-router.post('/conteos', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/conteos', authMiddleware, requiere('conteos.gestionar'), h(async (req, res) => {
   const sede = await inv.sedeActiva(db(), req.body?.ubicacionId);
   const id = await inv.enTransaccion(async (conn) => {
     const [[abierto]] = await conn.query("SELECT id FROM conteos WHERE ubicacion_id = ? AND estado = 'ABIERTO' FOR UPDATE", [sede.id]);
@@ -176,12 +183,13 @@ router.post('/conteos', authMiddleware, soloAdmin, h(async (req, res) => {
  * POST /api/conteos/:id/capturas { lineas: [{ varianteId?, codigo?, cantidad, modo: 'sumar'|'fijar' }] }
  * 'sumar' acumula (cada lectura del escáner suma 1); 'fijar' reemplaza (captura manual).
  */
-router.post('/conteos/:id/capturas', authMiddleware, h(async (req, res) => {
+router.post('/conteos/:id/capturas', authMiddleware, requiere('conteos.capturar'), h(async (req, res) => {
   const lineas = req.body?.lineas;
   if (!Array.isArray(lineas) || !lineas.length) throw new HttpError(400, 'Envía al menos una captura.');
   const capturadas = await inv.enTransaccion(async (conn) => {
     const [[c]] = await conn.query('SELECT * FROM conteos WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!c) throw new HttpError(404, 'Conteo no encontrado.');
+    exigirSede(req.user, c.ubicacion_id, 'contar');
     if (c.estado !== 'ABIERTO') throw new HttpError(409, 'El conteo ya está cerrado.');
     const out = [];
     for (const l of lineas) {
@@ -221,7 +229,7 @@ router.post('/conteos/:id/capturas', authMiddleware, h(async (req, res) => {
  * Calcula las diferencias contra el saldo congelado y genera un ajuste PENDIENTE de aprobación
  * (causal ERROR_CONTEO). Al aprobarlo, cada diferencia se aplica sobre el saldo de ese momento.
  */
-router.post('/conteos/:id/cerrar', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/conteos/:id/cerrar', authMiddleware, requiere('conteos.gestionar'), h(async (req, res) => {
   const noContadasEnCero = req.body?.noContadasEnCero === true;
   const ajusteId = await inv.enTransaccion(async (conn) => {
     const [[c]] = await conn.query('SELECT * FROM conteos WHERE id = ? FOR UPDATE', [req.params.id]);
@@ -246,7 +254,7 @@ router.post('/conteos/:id/cerrar', authMiddleware, soloAdmin, h(async (req, res)
   res.json({ conteo: await leerConteo(db(), req.params.id), ajuste: ajusteId ? await leerAjuste(db(), ajusteId) : null });
 }));
 
-router.post('/conteos/:id/cancelar', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/conteos/:id/cancelar', authMiddleware, requiere('conteos.gestionar'), h(async (req, res) => {
   const [r] = await db().query("UPDATE conteos SET estado = 'CANCELADO', fecha_cierre = NOW() WHERE id = ? AND estado = 'ABIERTO'", [req.params.id]);
   if (!r.affectedRows) throw new HttpError(409, 'Solo se puede cancelar un conteo abierto.');
   res.json(await leerConteo(db(), req.params.id, false));
@@ -256,8 +264,8 @@ router.post('/conteos/:id/cancelar', authMiddleware, soloAdmin, h(async (req, re
 
 /**
  * GET /api/alertas?estado=ACTIVA&ubicacionId=
- * Cada alerta activa trae el sugerido de reposición: lo que falta para llegar a 2 × mínimo,
- * y cuánto hay en la bodega central para cubrirlo.
+ * Cada alerta activa trae el sugerido de reposición: lo que falta para llegar a REPOSICION_FACTOR × mínimo
+ * (2 por defecto, configurable — RNF-08) y cuánto hay en la bodega central para cubrirlo.
  */
 router.get('/alertas', authMiddleware, h(async (req, res) => {
   const filtros = [], params = [];
@@ -268,7 +276,6 @@ router.get('/alertas', authMiddleware, h(async (req, res) => {
     SELECT a.id, a.estado, a.creada_en AS creadaEn, a.resuelta_en AS resueltaEn,
            a.variante_id AS varianteId, a.ubicacion_id AS ubicacionId, u.nombre AS ubicacion, u.tipo AS ubicacionTipo,
            COALESCE(s.cantidad, 0) AS stock, COALESCE(sm.minimo, v.stock_minimo) AS minimo, sm.minimo IS NOT NULL AS minimoPropio,
-           GREATEST(2 * COALESCE(sm.minimo, v.stock_minimo) - COALESCE(s.cantidad, 0), 0) AS sugerido,
            IF(u.tipo = 'BODEGA', NULL, COALESCE(sb.cantidad, 0)) AS enBodega,
            v.sku, m.nombre AS modelo, ma.nombre AS marca, co.nombre AS color, t.eu
     FROM alertas a
@@ -281,14 +288,16 @@ router.get('/alertas', authMiddleware, h(async (req, res) => {
     ${filtros.length ? `WHERE ${filtros.join(' AND ')}` : ''}
     ORDER BY a.estado, u.tipo DESC, u.id, COALESCE(s.cantidad, 0), m.nombre, t.eu
     LIMIT 500`, params);
-  res.json(rows);
+  const factor = await parametros.obtener('REPOSICION_FACTOR');
+  res.json(rows.map((a) => ({ ...a, sugerido: sugeridoReposicion(a.stock, a.minimo, factor) })));
 }));
 
 /** PUT /api/stock-minimos { varianteId, ubicacionId, minimo } (admin) — mínimo propio de una talla en una sede. */
-router.put('/stock-minimos', authMiddleware, soloAdmin, h(async (req, res) => {
+router.put('/stock-minimos', authMiddleware, requiere('alertas.minimos'), h(async (req, res) => {
   const minimo = Number(req.body?.minimo);
   if (!Number.isInteger(minimo) || minimo < 0) throw new HttpError(400, 'El mínimo debe ser un entero mayor o igual a 0.');
   const sede = await inv.sedeActiva(db(), req.body?.ubicacionId);
+  exigirSede(req.user, sede.id, 'cambiar mínimos');
   const varianteId = Number(req.body?.varianteId);
   await inv.validarVariantes(db(), [varianteId]);
   await inv.enTransaccion(async (conn) => {

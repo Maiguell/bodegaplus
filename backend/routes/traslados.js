@@ -10,7 +10,8 @@
 const express = require('express');
 const { getPool } = require('../db');
 const { HttpError, h } = require('../lib/http');
-const { authMiddleware, soloAdmin } = require('../lib/auth');
+const { authMiddleware } = require('../lib/auth');
+const { requiere, exigirSede } = require('../lib/permisos');
 const inv = require('../lib/inventario');
 
 const router = express.Router();
@@ -56,10 +57,11 @@ router.get('/', authMiddleware, h(async (req, res) => {
 router.get('/:id', authMiddleware, h(async (req, res) => res.json(await leerTraslado(db(), req.params.id))));
 
 /** POST /api/traslados { origenId, destinoId, observacion?, lineas: [{ varianteId, cantidad }] } */
-router.post('/', authMiddleware, h(async (req, res) => {
+router.post('/', authMiddleware, requiere('traslados.enviar'), h(async (req, res) => {
   const { origenId, destinoId, observacion } = req.body ?? {};
   const lineas = inv.consolidarLineas(req.body?.lineas);
   const origen = await inv.sedeActiva(db(), origenId, 'sede de origen');
+  exigirSede(req.user, origen.id, 'enviar traslados desde');
   const destino = await inv.sedeActiva(db(), destinoId, 'sede de destino');
   if (origen.id === destino.id) throw new HttpError(400, 'La sede destino debe ser distinta a la de origen.');
   await inv.validarVariantes(db(), lineas.map(([id]) => id));
@@ -87,13 +89,14 @@ router.post('/', authMiddleware, h(async (req, res) => {
  * POST /api/traslados/:id/recepcion { lineas: [{ varianteId, cantidad }], observacion? }
  * Suma lo recibido a la sede destino y cierra el traslado. Faltantes → novedad pendiente de revisión.
  */
-router.post('/:id/recepcion', authMiddleware, h(async (req, res) => {
+router.post('/:id/recepcion', authMiddleware, requiere('traslados.recibir'), h(async (req, res) => {
   const recibido = new Map(inv.consolidarLineas(req.body?.lineas, { permitirCero: true }));
   const observacion = req.body?.observacion?.trim() || null;
 
   await inv.enTransaccion(async (conn) => {
     const [[t]] = await conn.query('SELECT * FROM traslados WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!t) throw new HttpError(404, 'Traslado no encontrado.');
+    exigirSede(req.user, t.destino_id, 'recibir traslados en');
     if (t.estado !== 'EN_TRANSITO') throw new HttpError(409, 'Este traslado ya fue recibido.');
 
     const [detalle] = await conn.query(
@@ -136,7 +139,7 @@ router.post('/:id/recepcion', authMiddleware, h(async (req, res) => {
 }));
 
 /** POST /api/traslados/:id/novedad/revisar { comentario } - El jefe de bodega cierra la novedad (admin). */
-router.post('/:id/novedad/revisar', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/:id/novedad/revisar', authMiddleware, requiere('traslados.novedad'), h(async (req, res) => {
   const comentario = String(req.body?.comentario ?? '').trim();
   if (!comentario) throw new HttpError(400, 'Escribe qué se hizo con la novedad.');
   const [r] = await db().query(

@@ -8,7 +8,8 @@
 const express = require('express');
 const { getPool } = require('../db');
 const { HttpError, h } = require('../lib/http');
-const { authMiddleware, soloAdmin } = require('../lib/auth');
+const { authMiddleware } = require('../lib/auth');
+const { requiere, exigirSede } = require('../lib/permisos');
 const inv = require('../lib/inventario');
 
 const router = express.Router();
@@ -51,7 +52,7 @@ router.get('/', authMiddleware, h(async (req, res) => {
 router.get('/:id', authMiddleware, h(async (req, res) => res.json(await leerOrden(db(), req.params.id))));
 
 /** POST /api/ordenes-compra { proveedorId, destinoId?, observacion?, lineas: [{ varianteId, cantidad }] } (admin) */
-router.post('/', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/', authMiddleware, requiere('compras.crear'), h(async (req, res) => {
   const { proveedorId, destinoId, observacion } = req.body ?? {};
   const lineas = inv.consolidarLineas(req.body?.lineas);
   const [[prov]] = await db().query('SELECT id FROM proveedores WHERE id = ?', [Number(proveedorId) || 0]);
@@ -80,7 +81,7 @@ router.post('/', authMiddleware, soloAdmin, h(async (req, res) => {
  * Aumenta el inventario de la sede destino con lo recibido, genera el movimiento ENTRADA y deja la orden
  * "RECIBIDA" o "RECIBIDA_PARCIAL". Si lo recibido supera lo pedido, exige una observación.
  */
-router.post('/:id/recepcion', authMiddleware, h(async (req, res) => {
+router.post('/:id/recepcion', authMiddleware, requiere('compras.recibir'), h(async (req, res) => {
   const { observacion, referencia } = req.body ?? {};
   const lineas = inv.consolidarLineas(req.body?.lineas, { permitirCero: true }).filter(([, c]) => c > 0);
   if (!lineas.length) throw new HttpError(400, 'Registra al menos una cantidad recibida.');
@@ -88,6 +89,7 @@ router.post('/:id/recepcion', authMiddleware, h(async (req, res) => {
   const resultado = await inv.enTransaccion(async (conn) => {
     const [[orden]] = await conn.query('SELECT * FROM ordenes_compra WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!orden) throw new HttpError(404, 'Orden de compra no encontrada.');
+    exigirSede(req.user, orden.destino_id, 'recibir mercancía');
     if (!['PENDIENTE', 'RECIBIDA_PARCIAL'].includes(orden.estado)) {
       throw new HttpError(409, `La orden ${orden.codigo} está ${orden.estado.toLowerCase().replace('_', ' ')}; no admite más recepciones.`);
     }
@@ -130,7 +132,7 @@ router.post('/:id/recepcion', authMiddleware, h(async (req, res) => {
 }));
 
 /** POST /api/ordenes-compra/:id/anular - Solo órdenes sin recepciones (admin). */
-router.post('/:id/anular', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/:id/anular', authMiddleware, requiere('compras.crear'), h(async (req, res) => {
   const [r] = await db().query("UPDATE ordenes_compra SET estado = 'ANULADA' WHERE id = ? AND estado = 'PENDIENTE'", [req.params.id]);
   if (!r.affectedRows) throw new HttpError(409, 'Solo se puede anular una orden pendiente sin recepciones.');
   res.json(await leerOrden(db(), req.params.id));

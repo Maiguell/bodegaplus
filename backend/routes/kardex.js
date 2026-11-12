@@ -9,6 +9,7 @@ const express = require('express');
 const { getPool } = require('../db');
 const { HttpError, h } = require('../lib/http');
 const { authMiddleware } = require('../lib/auth');
+const { requiere } = require('../lib/permisos');
 
 const router = express.Router();
 const db = () => getPool();
@@ -19,7 +20,7 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
  * Movimientos en orden cronológico con tipo, documento, usuario, cantidad y saldo.
  * Sin sede, el saldo es el total de la variante en todas las sedes.
  */
-router.get('/', authMiddleware, h(async (req, res) => {
+router.get('/', authMiddleware, requiere('kardex.ver'), h(async (req, res) => {
   const { sku, ubicacionId, desde, hasta } = req.query;
   let varianteId = Number(req.query.varianteId) || null;
   if (!varianteId && sku) {
@@ -70,7 +71,7 @@ router.get('/', authMiddleware, h(async (req, res) => {
 }));
 
 /** GET /api/kardex/verificacion - Compara el saldo calculado desde el kardex con el stock almacenado. */
-router.get('/verificacion', authMiddleware, h(async (req, res) => {
+router.get('/verificacion', authMiddleware, requiere('kardex.ver'), h(async (req, res) => {
   const [diferencias] = await db().query(`
     SELECT x.varianteId, v.sku, x.ubicacionId, u.nombre AS ubicacion,
            CAST(SUM(x.almacenado) AS SIGNED) AS almacenado, CAST(SUM(x.calculado) AS SIGNED) AS calculado

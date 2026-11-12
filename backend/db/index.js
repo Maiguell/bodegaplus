@@ -11,6 +11,7 @@ const fs     = require('fs');
 const mysql  = require('mysql2/promise');
 const config = require('../lib/config');
 const { seed } = require('./seed');
+const { codigoBarrasVariante } = require('../lib/reglas');
 
 const { database: DB_NAME, ...cfg } = config.db;
 
@@ -30,6 +31,7 @@ async function init() {
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM usuarios');
   if (n === 0 && config.seed.habilitado) {
     await seed(pool, config.seed);
+    await asignarCodigosBarras(pool);
     await abrirKardex(pool);
     console.log('🌱 Datos de ejemplo cargados.');
   }
@@ -40,8 +42,18 @@ const getPool = () => pool;
 
 const TIPOS_MOVIMIENTO = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'AJUSTE', 'VENTA', 'CAMBIO',
   'TRASLADO_ENVIO', 'TRASLADO_RECEPCION', 'RESERVA', 'LIBERACION_RESERVA'];
-const MOTIVOS = ['TALLA_INCORRECTA', 'DEFECTO', 'SOBRANTE', 'CONTEO', 'MERMA', 'OTRO', 'AVERIA', 'PERDIDA', 'ERROR_CONTEO'];
+const ROLES = ['ADMIN', 'JEFE_BODEGA', 'OPERADOR', 'ADMIN_TIENDA', 'VENDEDOR', 'AUDITOR'];
+const CAUSALES = [['AVERIA', 'Avería'], ['PERDIDA', 'Pérdida'], ['ERROR_CONTEO', 'Error de conteo'], ['OTRO', 'Otra']];
 const lista = (vals) => vals.map((v) => `'${v}'`).join(',');
+
+/** HT05: asigna el código de barras interno (EAN-13, prefijo 20) a las variantes que no lo tengan. */
+async function asignarCodigosBarras(pool) {
+  const [sin] = await pool.query('SELECT id FROM variantes WHERE codigo_barras IS NULL');
+  for (const { id } of sin) {
+    await pool.query('UPDATE variantes SET codigo_barras = ? WHERE id = ? AND codigo_barras IS NULL', [codigoBarrasVariante(id), id]);
+  }
+  return sin.length;
+}
 
 /** Agrega una columna si no existe. */
 async function agregarColumna(pool, tabla, columna, definicion) {
@@ -68,12 +80,24 @@ async function abrirKardex(pool) {
  */
 async function migrate(pool) {
   await pool.query(`ALTER TABLE movimientos MODIFY tipo ENUM(${lista(TIPOS_MOVIMIENTO)}) NOT NULL`);
-  await pool.query(`ALTER TABLE movimientos MODIFY motivo ENUM(${lista(MOTIVOS)}) NULL`);
+  await pool.query('ALTER TABLE movimientos MODIFY motivo VARCHAR(30) NULL');
+  await pool.query('ALTER TABLE ajustes MODIFY causal VARCHAR(30) NOT NULL');
   for (const col of ['orden_compra_id', 'traslado_id', 'reserva_id', 'ajuste_id']) {
     await agregarColumna(pool, 'movimientos', col, 'INT NULL');
   }
   await agregarColumna(pool, 'variantes', 'costo', 'DECIMAL(12,2) NULL');
 
+  // HU19 / HU20: roles, sede y bloqueo
+  await pool.query(`ALTER TABLE usuarios MODIFY rol ENUM(${lista(ROLES)}) NOT NULL DEFAULT 'OPERADOR'`);
+  await agregarColumna(pool, 'usuarios', 'sede_id', 'INT NULL');
+  await agregarColumna(pool, 'usuarios', 'intentos_fallidos', 'INT NOT NULL DEFAULT 0');
+  await agregarColumna(pool, 'usuarios', 'bloqueado_hasta', 'DATETIME NULL');
+  await agregarColumna(pool, 'usuarios', 'ultimo_acceso', 'DATETIME NULL');
+
+  // RNF-08: causales iniciales (luego se administran desde Parámetros)
+  await pool.query('INSERT IGNORE INTO causales_ajuste (codigo, nombre) VALUES ?', [CAUSALES]);
+
+  await asignarCodigosBarras(pool);
   await abrirKardex(pool);
 
   // Bitácora de solo inserción
@@ -92,4 +116,10 @@ async function migrate(pool) {
   }
 }
 
-module.exports = { init, getPool };
+/** Cierra el pool (pruebas y apagado ordenado). */
+async function cerrar() {
+  if (pool) await pool.end();
+  pool = undefined;
+}
+
+module.exports = { init, getPool, cerrar, asignarCodigosBarras };

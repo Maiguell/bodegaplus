@@ -12,7 +12,10 @@
 const express = require('express');
 const { getPool } = require('../db');
 const { HttpError, h } = require('../lib/http');
-const { authMiddleware, soloAdmin } = require('../lib/auth');
+const { authMiddleware } = require('../lib/auth');
+const { requiere } = require('../lib/permisos');
+const parametros = require('../lib/parametros');
+const { agrupar, existenciaPromedio, indiceRotacion } = require('../lib/reglas');
 const tareas = require('../lib/tareas');
 const { listarRespaldos } = require('../lib/respaldo');
 
@@ -25,25 +28,13 @@ const DESC = `v.sku, m.id AS modeloId, m.nombre AS modelo, ma.nombre AS marca, c
 const JOIN_DESC = `JOIN variantes v ON v.id = x.variante_id JOIN modelos m ON m.id = v.modelo_id JOIN marcas ma ON ma.id = m.marca_id
   JOIN categorias c ON c.id = m.categoria_id JOIN colores co ON co.id = v.color_id JOIN tallas t ON t.id = v.talla_id`;
 
-/** Agrupa filas sumando campos numéricos. */
-const agrupar = (filas, clave, campos) => {
-  const m = new Map();
-  for (const f of filas) {
-    const k = clave(f);
-    if (!m.has(k.id)) m.set(k.id, { ...k, ...Object.fromEntries(campos.map((c) => [c, 0])) });
-    const g = m.get(k.id);
-    for (const c of campos) g[c] += f[c] ?? 0;
-  }
-  return [...m.values()];
-};
-
 // ── HU17: Inventario valorizado ───────────────────────────────────────────────
 
 /**
  * GET /api/informes/valorizado?corte=AAAA-MM-DD&ubicacionId=
  * La cantidad a la fecha de corte sale del kardex (saldo al final de ese día); el valor usa el costo vigente.
  */
-router.get('/valorizado', authMiddleware, h(async (req, res) => {
+router.get('/valorizado', authMiddleware, requiere('informes.ver'), h(async (req, res) => {
   const corte = req.query.corte || hoy();
   if (!FECHA.test(corte)) throw new HttpError(400, 'Fecha de corte con formato AAAA-MM-DD.');
   const params = [corte];
@@ -87,7 +78,7 @@ router.get('/valorizado', authMiddleware, h(async (req, res) => {
  * Por referencia y talla: unidades vendidas en el periodo, existencia promedio diaria (desde el kardex)
  * e índice de rotación = vendidas / existencia promedio.
  */
-router.get('/rotacion', authMiddleware, h(async (req, res) => {
+router.get('/rotacion', authMiddleware, requiere('informes.ver'), h(async (req, res) => {
   const hasta = req.query.hasta || hoy();
   const desde = req.query.desde || new Date(Date.now() - 29 * 864e5).toLocaleDateString('en-CA');
   if (!FECHA.test(desde) || !FECHA.test(hasta)) throw new HttpError(400, 'Fechas con formato AAAA-MM-DD.');
@@ -128,10 +119,8 @@ router.get('/rotacion', authMiddleware, h(async (req, res) => {
   const ids = [...new Set([...saldo0.keys(), ...deltas.keys(), ...vendidas.keys()])];
   const porVariante = new Map();
   for (const id of ids) {
-    let s = saldo0.get(id) ?? 0, acum = 0;
-    const d = deltas.get(id);
-    for (let i = 0; i < dias; i++) { s += d ? d[i] : 0; if (i >= offset) acum += s; }
-    porVariante.set(id, { promedio: acum / diasEfectivos, final: s, vendidas: vendidas.get(id) ?? 0 });
+    const { promedio, final } = existenciaPromedio(saldo0.get(id) ?? 0, deltas.get(id) ?? new Array(dias).fill(0), offset);
+    porVariante.set(id, { promedio, final, vendidas: vendidas.get(id) ?? 0 });
   }
 
   let filas = [];
@@ -149,8 +138,7 @@ router.get('/rotacion', authMiddleware, h(async (req, res) => {
     }
     filas = [...grupos.values()]
       .filter((g) => g.vendidas > 0 || g.existenciaPromedio > 0)
-      .map((g) => ({ ...g, existenciaPromedio: Math.round(g.existenciaPromedio * 100) / 100,
-        rotacion: g.existenciaPromedio > 0 ? Math.round((g.vendidas / g.existenciaPromedio) * 1000) / 1000 : null }))
+      .map((g) => ({ ...g, existenciaPromedio: Math.round(g.existenciaPromedio * 100) / 100, rotacion: indiceRotacion(g.vendidas, g.existenciaPromedio) }))
       .sort((a, b) => a.marca.localeCompare(b.marca) || a.modelo.localeCompare(b.modelo) || a.eu - b.eu);
   }
   res.json({
@@ -162,8 +150,8 @@ router.get('/rotacion', authMiddleware, h(async (req, res) => {
 // ── HU18: Sin movimiento ──────────────────────────────────────────────────────
 
 /** GET /api/informes/sin-movimiento?dias=90&ubicacionId= — lee los indicadores del proceso nocturno (HT06). */
-router.get('/sin-movimiento', authMiddleware, h(async (req, res) => {
-  const dias = req.query.dias === undefined ? 90 : Number(req.query.dias);
+router.get('/sin-movimiento', authMiddleware, requiere('informes.ver'), h(async (req, res) => {
+  const dias = req.query.dias === undefined || req.query.dias === '' ? await parametros.obtener('SIN_MOVIMIENTO_DIAS') : Number(req.query.dias);
   if (!Number.isInteger(dias) || dias < 0) throw new HttpError(400, 'Días inválidos.');
   const params = [dias];
   let filtro = '';
@@ -187,12 +175,12 @@ router.get('/sin-movimiento', authMiddleware, h(async (req, res) => {
 
 // ── HT06 / HT08: Procesos ─────────────────────────────────────────────────────
 
-router.get('/procesos', authMiddleware, soloAdmin, h(async (req, res) => {
+router.get('/procesos', authMiddleware, requiere('procesos'), h(async (req, res) => {
   const [ejecuciones] = await db().query('SELECT * FROM ejecuciones_proceso ORDER BY id DESC LIMIT 50');
   res.json({ procesos: tareas.PROCESOS, ejecuciones, respaldos: listarRespaldos().slice(0, 30) });
 }));
 
-router.post('/procesos/:proceso/ejecutar', authMiddleware, soloAdmin, h(async (req, res) => {
+router.post('/procesos/:proceso/ejecutar', authMiddleware, requiere('procesos'), h(async (req, res) => {
   const proceso = String(req.params.proceso).toUpperCase();
   if (!tareas.PROCESOS.includes(proceso)) throw new HttpError(404, 'Proceso desconocido.');
   try {

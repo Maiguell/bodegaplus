@@ -8,7 +8,7 @@
 import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
-import { getUser } from '../../services/authService.js';
+import { getUser, puede } from '../../services/authService.js';
 import { getCatalogo } from '../../services/catalogoService.js';
 import { getRotacion, getValorizado, getSinMovimiento, getProcesos, ejecutarProceso, fijarCostoModelo } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
@@ -18,7 +18,8 @@ let ubicaciones = [];
 let tab = 'rotacion';
 let datos = null;
 
-const esAdmin = () => getUser()?.rol === 'ADMIN';
+/** Permiso del rol (HU19); el backend valida de nuevo. */
+const esAdmin = () => puede('procesos');
 const optsSede = () => `<option value="">Todas</option>${ubicaciones.map((u) => `<option value="${u.id}">${esc(u.nombre)}</option>`).join('')}`;
 const val = (id) => document.getElementById(id)?.value;
 const vacio = (txt) => `<div class="empty-state" style="padding:32px;"><div class="empty-state-title">${txt}</div></div>`;
@@ -80,7 +81,7 @@ const renderValorizado = () => {
     </div>
     ${d.advertencia ? `<div class="op-alert" style="margin-bottom:12px;">${esc(d.advertencia)}</div>` : ''}
     ${d.sinCosto.length ? `<div class="op-alert danger" style="margin-bottom:12px;">${d.sinCosto.length} referencia(s) sin costo registrado se valoran en $0:
-      ${d.sinCosto.map((s) => `<span style="white-space:nowrap;">${esc(s.marca)} ${esc(s.modelo)}${esAdmin() ? ` <button type="button" class="btn btn-sm btn-secondary no-print" data-costo="${s.modeloId}" data-nombre="${esc(s.marca)} ${esc(s.modelo)}">Fijar costo</button>` : ''}</span>`).join(' · ')}</div>` : ''}
+      ${d.sinCosto.map((s) => `<span style="white-space:nowrap;">${esc(s.marca)} ${esc(s.modelo)}${puede('catalogo.editar') ? ` <button type="button" class="btn btn-sm btn-secondary no-print" data-costo="${s.modeloId}" data-nombre="${esc(s.marca)} ${esc(s.modelo)}">Fijar costo</button>` : ''}</span>`).join(' · ')}</div>` : ''}
     <div class="metrics-grid" style="margin-bottom:20px;">
       <div class="card metric-card indigo"><div class="metric-header"><span class="metric-label">Pares</span></div><div class="metric-value">${numero(d.totales.cantidad)}</div></div>
       <div class="card metric-card green"><div class="metric-header"><span class="metric-label">Valor a costo</span></div><div class="metric-value" style="font-size:var(--fs-h2);">${moneda(d.totales.valor)}</div></div>

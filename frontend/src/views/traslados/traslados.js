@@ -7,7 +7,7 @@
 import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
-import { getUser } from '../../services/authService.js';
+import { getUser, puede, sedesOperables } from '../../services/authService.js';
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
 import { getTraslados, enviarTraslado, recibirTraslado, revisarNovedad } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
@@ -22,7 +22,8 @@ let tab = 'recibir';
 let sedeDestino = '';
 let abiertoId = null; // traslado con el formulario de recepción desplegado
 
-const esAdmin = () => getUser()?.rol === 'ADMIN';
+/** Permiso del rol (HU19); el backend valida de nuevo. */
+const esAdmin = () => puede('traslados.novedad');
 const opts = (lista, sel) => lista.map((u) => `<option value="${u.id}" ${String(u.id) === String(sel) ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('');
 const origenId = () => Number(document.getElementById('tr-origen').value);
 
@@ -183,7 +184,7 @@ export const initTraslados = async () => {
             <form id="tr-form" class="op-form" novalidate>
               <div class="op-row">
                 <div class="form-group"><label class="form-label" for="tr-origen">Sede origen *</label>
-                  <select id="tr-origen" class="form-select">${opts(ubicaciones, bodega?.id)}</select></div>
+                  <select id="tr-origen" class="form-select">${opts(sedesOperables(ubicaciones), bodega?.id)}</select></div>
                 <div class="form-group"><label class="form-label" for="tr-destino">Sede destino *</label>
                   <select id="tr-destino" class="form-select">${opts(ubicaciones, primerLocal?.id)}</select></div>
               </div>

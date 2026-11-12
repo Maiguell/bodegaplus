@@ -32,7 +32,10 @@ falta configurar CORS ni dos dominios.
   `JWT_SECRET` (mínimo 32 caracteres), `DB_HOST`, `DB_USER` o `DB_PASSWORD`.
 - Los archivos `.env*` están en `.gitignore`; solo se versionan las plantillas `*.example`.
 - Los usuarios iniciales solo se crean con la base vacía, con las claves de
-  `SEED_ADMIN_PASSWORD` y `SEED_OPERADOR_PASSWORD` (obligatorias en producción).
+  `SEED_ADMIN_PASSWORD` y `SEED_OPERADOR_PASSWORD` (obligatorias en producción). Los usuarios de
+  demostración por rol (jefe, tienda, vendedor, auditor) solo se crean si se define `SEED_DEMO_PASSWORD`.
+- Las contraseñas deben cumplir la política (RNF-05): mínimo 8 caracteres con letras y números; tras 5
+  intentos fallidos la cuenta se bloquea 15 minutos (configurable en *Parámetros*).
 
 Generar un `JWT_SECRET`:
 
@@ -112,7 +115,16 @@ La retención se probó con un respaldo de 31 días (eliminado) y uno de 22 día
 | Indicadores | cada noche (`INDICADORES_HOUR`, 2 a. m.) y al primer arranque | Días sin movimiento y ventas 30/90 días (HU16, HU18) |
 | Copia de seguridad | cada noche (`BACKUP_HOUR`) si `BACKUP_ENABLED=true` | Respaldo con retención |
 
-## 6. Lista de verificación después de desplegar
+## 6. Disponibilidad y monitoreo (RNF-03)
+
+- `GET /api/salud` responde `{ ok: true }` solo si la base de datos contesta: úsalo como *health check*
+  del hosting (el `Dockerfile` ya lo declara) y en un monitor externo gratuito (UptimeRobot, Better Stack)
+  cada 5 minutos en horario comercial. El porcentaje de disponibilidad del monitor es la evidencia de RNF-03.
+- Si el servicio cae, las tiendas siguen consultando la última disponibilidad descargada (RNF-07).
+- Capacidad medida (ver `docs/evidencias/rendimiento/` y el informe final): con una instancia, 50 usuarios
+  concurrentes se atienden sin errores; para más carga, escalar a 2+ instancias detrás del balanceador del hosting.
+
+## 7. Lista de verificación después de desplegar
 
 - [ ] `GET /api/salud` responde `ok: true` por HTTPS.
 - [ ] Iniciar sesión con el administrador y cambiar las claves iniciales.

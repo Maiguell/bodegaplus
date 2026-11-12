@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,2. Consultar disponibilidad,CatchResponseError('RNF-02: más de 3 s'),7045,2026-11-12T05:06:15Z,2026-11-12T05:13:12Z

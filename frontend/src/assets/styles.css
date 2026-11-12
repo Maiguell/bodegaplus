@@ -815,8 +815,11 @@ svg {
   .data-table { font-size: var(--fs-small); }
 }
 
-/* ---- Impresión / Guardar como PDF (HU17) ---- */
+/* ---- Impresión / Guardar como PDF (HU17, actas de conteo) ---- */
+.solo-impresion { display: none; }
 @media print {
+  .solo-impresion { display: block !important; }
+  .op-layout { display: block; }
   .sidebar, .no-print, #toast-container, .modal-overlay { display: none !important; }
   .app-shell { display: block; height: auto; overflow: visible; }
   .main-content { overflow: visible; height: auto; }

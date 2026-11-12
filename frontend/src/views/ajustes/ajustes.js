@@ -9,7 +9,7 @@
 import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
-import { getUser } from '../../services/authService.js';
+import { getUser, puede, sedesOperables } from '../../services/authService.js';
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
 import { getAjustes, crearAjuste, aprobarAjuste, rechazarAjuste } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
@@ -17,12 +17,15 @@ import { esc, numero, fechaHora, badgeAjuste, CAUSALES } from '../../utils/forma
 import { buscarVariante, datalistVariantes, descVariante, mensajeSugerencias } from '../../utils/variantes.js';
 
 let ubicaciones = [];
+/** Causales activas, configurables en Parámetros (RNF-08). */
+let causales = [];
 let variantes = [];
 let ajustes = [];
 let lineas = [];
 let filtro = 'PENDIENTE';
 
-const esAdmin = () => getUser()?.rol === 'ADMIN';
+/** Permiso del rol (HU19); el backend valida de nuevo. */
+const esAdmin = () => puede('ajustes.aprobar');
 const sedeId = () => Number(document.getElementById('aj-sede').value);
 const signo = (n) => (n > 0 ? `+${n}` : String(n));
 
@@ -80,7 +83,7 @@ const enviar = async (e) => {
 const itemAjuste = (a) => `
   <div class="op-item">
     <div style="min-width:0;">
-      <div class="op-item-title">${esc(a.codigo)} · ${esc(CAUSALES[a.causal] ?? a.causal)} ${badgeAjuste(a.estado)}
+      <div class="op-item-title">${esc(a.codigo)} · ${esc(a.causalNombre ?? CAUSALES[a.causal] ?? a.causal)} ${badgeAjuste(a.estado)}
         ${a.conteoId ? `<span class="badge badge-info">Conteo CF-${String(a.conteoId).padStart(4, '0')}</span>` : ''}</div>
       <div class="op-item-meta">${esc(a.ubicacion)} · ${fechaHora(a.fecha)} por ${esc(a.usuario)} · neto ${signo(a.neto)} pares</div>
       <div class="op-item-meta">“${esc(a.observacion)}”</div>
@@ -115,7 +118,7 @@ export const initAjustes = async () => {
     <div class="loader-container"><div class="spinner"></div> Cargando…</div></div></main></div>`);
   try {
     const [cat, inv, ajs] = await Promise.all([getCatalogo(), getInventario(), getAjustes()]);
-    ubicaciones = cat.ubicaciones; variantes = inv; ajustes = ajs;
+    ubicaciones = cat.ubicaciones; causales = cat.causales ?? []; variantes = inv; ajustes = ajs;
   } catch (err) {
     showToast(err.message ?? 'Error al cargar datos.', 'error');
   }
@@ -135,9 +138,9 @@ export const initAjustes = async () => {
             <form id="aj-form" class="op-form" novalidate>
               <div class="op-row">
                 <div class="form-group"><label class="form-label" for="aj-sede">Sede *</label>
-                  <select id="aj-sede" class="form-select">${ubicaciones.map((u) => `<option value="${u.id}">${esc(u.nombre)}</option>`).join('')}</select></div>
+                  <select id="aj-sede" class="form-select">${sedesOperables(ubicaciones).map((u) => `<option value="${u.id}">${esc(u.nombre)}</option>`).join('')}</select></div>
                 <div class="form-group"><label class="form-label" for="aj-causal">Causal *</label>
-                  <select id="aj-causal" class="form-select">${Object.entries(CAUSALES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+                  <select id="aj-causal" class="form-select">${causales.map((c) => `<option value="${esc(c.codigo)}">${esc(c.nombre)}</option>`).join('')}</select></div>
               </div>
               <div style="display:flex;flex-direction:column;gap:10px;padding:14px;border:1px dashed var(--clr-ink);">
                 <div class="form-group"><label class="form-label" for="aj-sku">SKU</label>

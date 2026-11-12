@@ -8,7 +8,7 @@
 import '../../assets/operaciones.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
-import { getUser } from '../../services/authService.js';
+import { getUser, puede } from '../../services/authService.js';
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
 import { getOrdenesCompra, getOrdenCompra, crearOrdenCompra, recibirOrdenCompra, anularOrdenCompra } from '../../services/operacionesService.js';
 import { showToast } from '../../utils/toast.js';
@@ -22,7 +22,8 @@ let filtro = 'abiertas';
 /** Panel derecho: { modo: 'vacio' } | { modo: 'recibir', orden } | { modo: 'nueva', lineas: [] } */
 let panel = { modo: 'vacio' };
 
-const esAdmin = () => getUser()?.rol === 'ADMIN';
+/** Permiso del rol (HU19); el backend valida de nuevo. */
+const esAdmin = () => puede('compras.crear');
 const abierta = (o) => o.estado === 'PENDIENTE' || o.estado === 'RECIBIDA_PARCIAL';
 
 // ── Lista de órdenes ────────────────────────────────────────────────────────
@@ -113,6 +114,19 @@ const enviarRecepcion = async (e) => {
     showToast(`${numero(r.pares)} pares ingresados. Orden ${r.estado === 'RECIBIDA' ? 'recibida' : 'recibida parcialmente'}.`, 'success');
     panel = { modo: 'recibir', orden: r.orden };
     renderPanel();
+    // HU04: dejar listas las etiquetas de lo que acaba de entrar
+    const recibidas = lineas.filter((l) => l.cantidad > 0);
+    if (puede('etiquetas')) {
+      document.getElementById('oc-panel').insertAdjacentHTML('afterbegin', `
+        <div class="op-alert" style="border-color:var(--clr-success);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span>✓ Entrada registrada: ${numero(r.pares)} pares.</span>
+          <button type="button" id="oc-etiquetas" class="btn btn-sm btn-primary">Imprimir etiquetas de lo recibido</button>
+        </div>`);
+      document.getElementById('oc-etiquetas').addEventListener('click', () => {
+        sessionStorage.setItem('etiquetas-pendientes', JSON.stringify(recibidas));
+        window.location.hash = '#/etiquetas';
+      });
+    }
     await recargarOrdenes();
   } catch (err) {
     showToast(err.message ?? 'Error al registrar la recepción.', 'error');
