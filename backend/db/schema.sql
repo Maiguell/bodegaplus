@@ -95,12 +95,96 @@ CREATE TABLE IF NOT EXISTS proveedores (
   contacto VARCHAR(100) NULL
 );
 
+-- HU05: Órdenes de compra a proveedor y lo recibido contra cada una
+CREATE TABLE IF NOT EXISTS ordenes_compra (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(20) NOT NULL UNIQUE,            -- OC-0012
+  proveedor_id INT NOT NULL,
+  destino_id INT NOT NULL,                       -- sede que recibe
+  estado ENUM('PENDIENTE','RECIBIDA_PARCIAL','RECIBIDA','ANULADA') NOT NULL DEFAULT 'PENDIENTE',
+  fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  usuario_id INT NOT NULL,
+  observacion VARCHAR(255) NULL,
+  FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
+  FOREIGN KEY (destino_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS orden_compra_detalle (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  orden_id INT NOT NULL,
+  variante_id INT NOT NULL,
+  cantidad_pedida INT NOT NULL,
+  cantidad_recibida INT NOT NULL DEFAULT 0,
+  FOREIGN KEY (orden_id) REFERENCES ordenes_compra(id),
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  UNIQUE KEY uq_oc_variante (orden_id, variante_id),
+  CONSTRAINT chk_oc_pedida CHECK (cantidad_pedida > 0)
+);
+
+-- HU08 / HU09: Traslados entre sedes (los pares quedan "en tránsito" hasta que el destino confirma)
+CREATE TABLE IF NOT EXISTS traslados (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  origen_id INT NOT NULL,
+  destino_id INT NOT NULL,
+  estado ENUM('EN_TRANSITO','RECIBIDO','RECIBIDO_CON_NOVEDAD') NOT NULL DEFAULT 'EN_TRANSITO',
+  usuario_envia_id INT NOT NULL,
+  fecha_envio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  usuario_recibe_id INT NULL,
+  fecha_recepcion DATETIME NULL,
+  observacion VARCHAR(255) NULL,
+  novedad VARCHAR(500) NULL,                     -- diferencias detectadas al recibir
+  novedad_estado ENUM('PENDIENTE','REVISADA') NULL,
+  novedad_comentario VARCHAR(255) NULL,
+  novedad_revisada_por INT NULL,
+  FOREIGN KEY (origen_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (destino_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (usuario_envia_id) REFERENCES usuarios(id),
+  FOREIGN KEY (usuario_recibe_id) REFERENCES usuarios(id),
+  FOREIGN KEY (novedad_revisada_por) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS traslado_detalle (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  traslado_id INT NOT NULL,
+  variante_id INT NOT NULL,
+  cantidad_enviada INT NOT NULL,
+  cantidad_recibida INT NULL,
+  FOREIGN KEY (traslado_id) REFERENCES traslados(id),
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  UNIQUE KEY uq_traslado_variante (traslado_id, variante_id)
+);
+
+-- HU14: Reservas temporales de unidades para un cliente
+CREATE TABLE IF NOT EXISTS reservas (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  variante_id INT NOT NULL,
+  ubicacion_id INT NOT NULL,
+  cantidad INT NOT NULL DEFAULT 1,
+  cliente_nombre VARCHAR(100) NOT NULL,
+  cliente_telefono VARCHAR(30) NULL,
+  estado ENUM('ACTIVA','VENDIDA','VENCIDA','CANCELADA') NOT NULL DEFAULT 'ACTIVA',
+  creada_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  vence_en DATETIME NOT NULL,
+  cerrada_en DATETIME NULL,
+  usuario_id INT NOT NULL,
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+  INDEX idx_reserva_estado (estado, vence_en)
+);
+
 -- Cabecera de movimiento. origen/destino según tipo:
---   ENTRADA: proveedor -> bodega | DESPACHO: bodega -> local
---   DEVOLUCION: local -> bodega  | AJUSTE: sobre una ubicación (diferencia con signo)
+--   ENTRADA: proveedor -> sede        | DESPACHO: bodega -> local
+--   DEVOLUCION: local -> bodega       | AJUSTE: sobre una sede (diferencia con signo)
+--   VENTA: sede -> cliente            | CAMBIO: misma sede (+talla devuelta, -talla nueva)
+--   TRASLADO_ENVIO: origen -> tránsito | TRASLADO_RECEPCION: tránsito -> destino
+--   RESERVA / LIBERACION_RESERVA: aparta o devuelve unidades al disponible de la sede
+-- Solo inserción: los triggers de db/index.js impiden editar o borrar (RNF-04).
 CREATE TABLE IF NOT EXISTS movimientos (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  tipo ENUM('ENTRADA','DESPACHO','DEVOLUCION','AJUSTE') NOT NULL,
+  tipo ENUM('ENTRADA','DESPACHO','DEVOLUCION','AJUSTE','VENTA','CAMBIO',
+            'TRASLADO_ENVIO','TRASLADO_RECEPCION','RESERVA','LIBERACION_RESERVA') NOT NULL,
   fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   usuario_id INT NOT NULL,
   proveedor_id INT NULL,
@@ -109,6 +193,9 @@ CREATE TABLE IF NOT EXISTS movimientos (
   motivo ENUM('TALLA_INCORRECTA','DEFECTO','SOBRANTE','CONTEO','MERMA','OTRO') NULL,
   referencia VARCHAR(60) NULL,
   observacion VARCHAR(255) NULL,
+  orden_compra_id INT NULL,
+  traslado_id INT NULL,
+  reserva_id INT NULL,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
   FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
   FOREIGN KEY (origen_id) REFERENCES ubicaciones(id),
@@ -122,4 +209,20 @@ CREATE TABLE IF NOT EXISTS movimiento_detalle (
   cantidad INT NOT NULL,  -- pares; en AJUSTE puede ser negativa
   FOREIGN KEY (movimiento_id) REFERENCES movimientos(id) ON DELETE CASCADE,
   FOREIGN KEY (variante_id) REFERENCES variantes(id)
+);
+
+-- HT04 / HU07: Kardex. Una fila por cada cambio de stock de una variante en una sede,
+-- con el saldo resultante. movimiento_id NULL = saldo inicial al activar el kardex.
+CREATE TABLE IF NOT EXISTS kardex (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  movimiento_id INT NULL,
+  variante_id INT NOT NULL,
+  ubicacion_id INT NOT NULL,
+  cantidad INT NOT NULL,                         -- con signo
+  saldo INT NOT NULL,                            -- saldo en la sede después del cambio
+  fecha DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  FOREIGN KEY (movimiento_id) REFERENCES movimientos(id),
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  INDEX idx_kardex_variante (variante_id, id)
 );

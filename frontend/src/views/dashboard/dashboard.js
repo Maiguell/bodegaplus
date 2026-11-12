@@ -9,7 +9,7 @@ import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
 import { getDashboardMetrics, getMovimientos } from '../../services/movimientosService.js';
 import { showToast } from '../../utils/toast.js';
-import { esc, fechaHora, moneda, numero, TIPOS_MOV } from '../../utils/format.js';
+import { esc, fechaHora, moneda, numero, TIPOS_MOV, rutaMovimiento } from '../../utils/format.js';
 
 export { buildSidebar };
 
@@ -20,34 +20,49 @@ const buildMetricCards = (m) => {
   return `
   <div class="metrics-grid">
     <div class="card metric-card indigo">
-      <div class="metric-header"><span class="metric-label">Pares en bodega</span><div class="metric-icon indigo">📦</div></div>
+      <div class="metric-header"><span class="metric-label">Pares en bodega</span></div>
       <div class="metric-value">${numero(bodega?.pares)}</div>
       <div class="metric-trend"><span>${m.totalModelos ?? 0} modelos · ${m.totalVariantes ?? 0} variantes</span></div>
     </div>
     <div class="card metric-card sky">
-      <div class="metric-header"><span class="metric-label">Pares en locales</span><div class="metric-icon sky">🏬</div></div>
+      <div class="metric-header"><span class="metric-label">Pares en locales</span></div>
       <div class="metric-value">${numero(paresLocales)}</div>
       <div class="metric-trend"><span>${locales.map((u) => `${esc(u.nombre)}: ${numero(u.pares)}`).join(' · ')}</span></div>
     </div>
     <div class="card metric-card amber">
-      <div class="metric-header"><span class="metric-label">Bajo mínimo (bodega)</span><div class="metric-icon amber">⚠️</div></div>
+      <div class="metric-header"><span class="metric-label">Bajo mínimo (bodega)</span></div>
       <div class="metric-value">${m.bajoStock?.length ?? 0}</div>
       <div class="metric-trend"><span class="trend-down">Variantes por reponer</span></div>
     </div>
     <div class="card metric-card green">
-      <div class="metric-header"><span class="metric-label">Valor del inventario</span><div class="metric-icon green">💰</div></div>
-      <div class="metric-value" style="font-size:1.5rem;">${moneda(m.valorInventario)}</div>
-      <div class="metric-trend"><span>${m.movimientosHoy ?? 0} movimientos hoy</span></div>
+      <div class="metric-header"><span class="metric-label">Valor del inventario</span></div>
+      <div class="metric-value" style="font-size:var(--fs-h2);">${moneda(m.valorInventario)}</div>
+      <div class="metric-trend"><span>${m.movimientosHoy ?? 0} movimientos hoy · ${m.ventasHoy ?? 0} ventas</span></div>
     </div>
+  </div>
+  ${pendientes(m)}`;
+};
+
+/** Avisos operativos: traslados por recibir, novedades, OC abiertas y reservas activas. */
+const pendientes = (m) => {
+  const avisos = [
+    [m.trasladosEnTransito, 'traslado(s) en tránsito por recibir', '#/traslados'],
+    [m.novedadesPendientes, 'novedad(es) de traslado por revisar', '#/traslados'],
+    [m.ordenesAbiertas, 'orden(es) de compra por recibir', '#/compras'],
+    [m.reservasActivas, 'reserva(s) activa(s)', '#/tienda'],
+  ].filter(([n]) => n > 0);
+  if (!avisos.length) return '';
+  return `<div class="card" style="padding:16px 20px;margin-top:20px;display:flex;gap:20px;flex-wrap:wrap;font-size:var(--fs-small);">
+    ${avisos.map(([n, txt, href]) => `<a href="${href}" style="color:var(--clr-text-primary);"><strong>${numero(n)}</strong> ${txt} →</a>`).join('')}
   </div>`;
 };
 
 const buildMovimientoItem = (mov) => {
-  const t = TIPOS_MOV[mov.tipo];
-  const ruta = mov.tipo === 'ENTRADA' ? mov.proveedor ?? 'Proveedor' : mov.tipo === 'AJUSTE' ? mov.destino : `${mov.origen} → ${mov.destino}`;
+  const t = TIPOS_MOV[mov.tipo] ?? { label: mov.tipo, signo: '·', clase: 'ajuste' };
+  const ruta = rutaMovimiento(mov);
   return `
     <div class="movimiento-item">
-      <div class="movimiento-icon ${t.clase}">${t.icon}</div>
+      <div class="movimiento-icon ${t.clase}">${t.signo}</div>
       <div class="movimiento-info">
         <div class="movimiento-nombre">${t.label} · ${esc(ruta)}</div>
         <div class="movimiento-fecha">${fechaHora(mov.fecha)} · ${(mov.lineas ?? []).length} línea(s)</div>
@@ -85,26 +100,26 @@ const buildDashboardHTML = (metrics, movimientos) => `
           <h2 class="section-title">Últimos movimientos</h2>
           ${movimientos.length
             ? movimientos.slice(0, 8).map(buildMovimientoItem).join('')
-            : '<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:16px 0;">Sin movimientos registrados.</p>'}
-          <a href="#/movimientos" style="display:block;text-align:center;margin-top:16px;font-size:0.8rem;color:var(--clr-accent);">Ver todos →</a>
+            : '<p style="color:var(--clr-text-muted);font-size:var(--fs-small);padding:16px 0;">Sin movimientos registrados.</p>'}
+          <a href="#/movimientos" style="display:block;text-align:center;margin-top:16px;font-size:var(--fs-small);color:var(--clr-accent);">Ver todos →</a>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:24px;">
           <div class="card" style="padding:24px;">
-            <h2 class="section-title">⚠️ Reponer en bodega</h2>
+            <h2 class="section-title">Reponer en bodega</h2>
             ${metrics.bajoStock?.length
               ? metrics.bajoStock.slice(0, 7).map(buildAlertItem).join('')
-              : '<p style="color:var(--clr-text-muted);font-size:0.82rem;">Sin alertas activas.</p>'}
-            ${metrics.bajoStock?.length > 7 ? `<p style="font-size:0.75rem;color:var(--clr-text-muted);padding-top:8px;">y ${metrics.bajoStock.length - 7} más…</p>` : ''}
+              : '<p style="color:var(--clr-text-muted);font-size:var(--fs-small);">Sin alertas activas.</p>'}
+            ${metrics.bajoStock?.length > 7 ? `<p style="font-size:var(--fs-small);color:var(--clr-text-muted);padding-top:8px;">y ${metrics.bajoStock.length - 7} más…</p>` : ''}
           </div>
 
           <div class="card" style="padding:24px;">
             <h2 class="section-title">Acciones rápidas</h2>
             <div class="quick-actions">
-              <a href="#/movimientos" class="quick-action-btn"><span>📥</span> Entrada</a>
-              <a href="#/movimientos" class="quick-action-btn"><span>🚚</span> Despachar a local</a>
-              <a href="#/inventario" class="quick-action-btn"><span>📦</span> Ver inventario</a>
-              <a href="#/reportes" class="quick-action-btn"><span>📊</span> Reportes</a>
+              <a href="#/movimientos" class="quick-action-btn"><span></span> Entrada</a>
+              <a href="#/movimientos" class="quick-action-btn"><span></span> Despachar a local</a>
+              <a href="#/inventario" class="quick-action-btn"><span></span> Ver inventario</a>
+              <a href="#/reportes" class="quick-action-btn"><span></span> Reportes</a>
             </div>
           </div>
         </div>

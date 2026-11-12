@@ -1,7 +1,8 @@
 /**
  * @module movimientosView
- * @description Registro de movimientos de la bodega con varias líneas (SKU + pares):
- * ENTRADA de proveedor, DESPACHO a un local, DEVOLUCIÓN desde un local y AJUSTE (solo admin).
+ * @description Registro de movimientos con varias líneas (SKU + pares):
+ * ENTRADA de proveedor, DESPACHO a un local, DEVOLUCIÓN desde un local, VENTA en una sede (HU06)
+ * y AJUSTE (solo admin). El historial muestra todos los tipos, incluidos traslados, cambios y reservas.
  */
 
 import './movimientos.css';
@@ -11,7 +12,11 @@ import { getUser } from '../../services/authService.js';
 import { registrarMovimiento, getMovimientos } from '../../services/movimientosService.js';
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
 import { showToast } from '../../utils/toast.js';
-import { esc, fechaHora, numero, TIPOS_MOV, MOTIVOS } from '../../utils/format.js';
+import { esc, fechaHora, numero, TIPOS_MOV, MOTIVOS, rutaMovimiento } from '../../utils/format.js';
+import { buscarVariante, mensajeSugerencias } from '../../utils/variantes.js';
+
+/** Tipos que se registran desde este formulario. */
+const TIPOS_FORM = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'VENTA', 'AJUSTE'];
 
 const MOTIVOS_POR_TIPO = {
   DEVOLUCION: ['TALLA_INCORRECTA', 'DEFECTO', 'SOBRANTE', 'OTRO'],
@@ -37,7 +42,7 @@ const ubicacionOrigen = () => {
   const val = (id) => document.getElementById(id)?.value;
   if (tipo === 'DESPACHO') return bodega()?.id;
   if (tipo === 'DEVOLUCION') return Number(val('mov-local'));
-  if (tipo === 'AJUSTE') return Number(val('mov-ubicacion'));
+  if (tipo === 'AJUSTE' || tipo === 'VENTA') return Number(val('mov-ubicacion'));
   return bodega()?.id; // ENTRADA: se muestra el stock actual de la bodega
 };
 
@@ -59,6 +64,9 @@ const renderCamposTipo = () => {
         <select id="mov-local" class="form-select">${opts(locales())}</select></div>
       <div class="form-group"><label class="form-label" for="mov-motivo">Motivo *</label>
         <select id="mov-motivo" class="form-select">${motivos}</select></div>`,
+    VENTA: `
+      <div class="form-group"><label class="form-label" for="mov-ubicacion">Sede que vende *</label>
+        <select id="mov-ubicacion" class="form-select">${opts([...locales(), ...catalogo.ubicaciones.filter((u) => u.tipo !== 'LOCAL')])}</select></div>`,
     AJUSTE: `
       <div class="form-group"><label class="form-label" for="mov-ubicacion">Ubicación *</label>
         <select id="mov-ubicacion" class="form-select">${opts(catalogo.ubicaciones)}</select></div>
@@ -69,6 +77,7 @@ const renderCamposTipo = () => {
   el.querySelectorAll('select').forEach((s) => s.addEventListener('change', actualizarDisponible));
   document.getElementById('mov-cantidad').min = tipo === 'AJUSTE' ? '' : '1';
   document.getElementById('lbl-cantidad').textContent = tipo === 'AJUSTE' ? 'Diferencia (± pares) *' : 'Pares *';
+  document.getElementById('lbl-ref').textContent = tipo === 'VENTA' ? 'Factura de venta' : 'Referencia (factura / guía)';
 };
 
 const selectTipo = (t) => {
@@ -81,10 +90,7 @@ const selectTipo = (t) => {
   actualizarDisponible();
 };
 
-const varianteDeInput = () => {
-  const code = document.getElementById('mov-sku').value.trim().toUpperCase();
-  return variantes.find((v) => v.sku.toUpperCase() === code);
-};
+const varianteDeInput = () => buscarVariante(variantes, document.getElementById('mov-sku').value);
 
 const actualizarDisponible = () => {
   const el = document.getElementById('disponible');
@@ -98,7 +104,7 @@ const actualizarDisponible = () => {
 const renderLineas = () => {
   const el = document.getElementById('lineas');
   if (!lineas.length) {
-    el.innerHTML = '<p style="color:var(--clr-text-muted);font-size:0.82rem;">Aún no hay líneas. Escribe o escanea un SKU y agrégalo.</p>';
+    el.innerHTML = '<p style="color:var(--clr-text-muted);font-size:var(--fs-small);">Aún no hay líneas. Escribe o escanea un SKU y agrégalo.</p>';
     return;
   }
   const total = lineas.reduce((a, l) => a + l.cantidad, 0);
@@ -109,7 +115,7 @@ const renderLineas = () => {
             <td style="font-weight:700;">${l.cantidad}</td>
             <td><button type="button" class="btn btn-sm btn-danger" data-quitar="${i}">✕</button></td></tr>`).join('')}
     </tbody></table>
-    <div style="text-align:right;padding-top:8px;font-size:0.85rem;color:var(--clr-text-secondary);">Total: <strong>${numero(total)}</strong> pares</div>`;
+    <div style="text-align:right;padding-top:8px;font-size:var(--fs-small);color:var(--clr-text-secondary);">Total: <strong>${numero(total)}</strong> pares</div>`;
 };
 
 const agregarLinea = () => {
@@ -154,7 +160,7 @@ const enviar = async (e) => {
     [variantes, historial] = await Promise.all([getInventario(), getMovimientos()]); // el stock cambió
     renderHistorial();
   } catch (err) {
-    showToast(err.message ?? 'Error al registrar el movimiento.', 'error');
+    showToast(err.data?.sugerencias ? mensajeSugerencias(err) : (err.message ?? 'Error al registrar el movimiento.'), 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Registrar movimiento';
@@ -164,14 +170,13 @@ const enviar = async (e) => {
 // ── Historial ───────────────────────────────────────────────────────────────
 
 const buildItem = (m) => {
-  const t = TIPOS_MOV[m.tipo];
-  const ruta = m.tipo === 'ENTRADA' ? `${m.proveedor ?? 'Sin proveedor'} → ${m.destino}`
-    : m.tipo === 'AJUSTE' ? m.destino : `${m.origen} → ${m.destino}`;
+  const t = TIPOS_MOV[m.tipo] ?? { label: m.tipo, signo: '·', clase: 'ajuste' };
+  const ruta = rutaMovimiento(m);
   const lineasHtml = (m.lineas ?? []).map((l) =>
     `<li>${esc(l.modelo)} · ${esc(l.color)} · EU ${l.talla} <span class="product-sku">${esc(l.sku)}</span> × ${l.cantidad}</li>`).join('');
   return `
     <div class="mov-list-item">
-      <div class="mov-tipo-pill ${t.clase}">${t.icon}</div>
+      <div class="mov-tipo-pill ${t.clase}">${t.signo}</div>
       <div style="min-width:0;">
         <div class="mov-detail-nombre">${t.label} · ${esc(ruta)}</div>
         <div class="mov-detail-obs">${fechaHora(m.fecha)} · ${esc(m.usuario)}${m.motivo ? ` · ${MOTIVOS[m.motivo]}` : ''}${m.referencia ? ` · Ref. ${esc(m.referencia)}` : ''}</div>
@@ -188,7 +193,7 @@ const renderHistorial = () => {
   const lista = filtroHistorial === 'todos' ? historial : historial.filter((m) => m.tipo === filtroHistorial);
   cont.innerHTML = lista.length
     ? lista.map(buildItem).join('')
-    : `<div class="empty-state" style="padding:32px;"><div class="empty-state-icon">📋</div><div class="empty-state-title">Sin movimientos</div></div>`;
+    : `<div class="empty-state" style="padding:32px;"><div class="empty-state-title">Sin movimientos</div></div>`;
 };
 
 // ── Inicializador ───────────────────────────────────────────────────────────
@@ -208,7 +213,7 @@ export const initMovimientos = async () => {
     showToast(err.message ?? 'Error al cargar datos.', 'error');
   }
 
-  const tipos = Object.keys(TIPOS_MOV).filter((t) => t !== 'AJUSTE' || getUser()?.rol === 'ADMIN');
+  const tipos = TIPOS_FORM.filter((t) => t !== 'AJUSTE' || getUser()?.rol === 'ADMIN');
   tipo = 'ENTRADA';
   lineas = [];
   filtroHistorial = 'todos';
@@ -221,7 +226,7 @@ export const initMovimientos = async () => {
           <header class="page-header">
             <div>
               <h1 class="page-title">Movimientos</h1>
-              <p class="page-subtitle">Entradas de proveedor, despachos a locales, devoluciones y ajustes.</p>
+              <p class="page-subtitle">Entradas, despachos, devoluciones, ventas y ajustes. El historial incluye traslados, cambios y reservas.</p>
             </div>
           </header>
 
@@ -229,7 +234,7 @@ export const initMovimientos = async () => {
             <div class="card movimiento-form-card">
               <h2 class="section-title">Registrar movimiento</h2>
               <div class="tipo-selector">
-                ${tipos.map((t) => `<button type="button" class="tipo-btn ${t === 'ENTRADA' ? 'selected-entrada' : ''}" data-tipo="${t}">${TIPOS_MOV[t].icon} ${TIPOS_MOV[t].label}</button>`).join('')}
+                ${tipos.map((t) => `<button type="button" class="tipo-btn ${t === 'ENTRADA' ? 'selected-entrada' : ''}" data-tipo="${t}">${TIPOS_MOV[t].label}</button>`).join('')}
               </div>
 
               <form id="movimiento-form" class="movimiento-form" novalidate>
@@ -253,7 +258,7 @@ export const initMovimientos = async () => {
 
                 <div id="lineas"></div>
 
-                <div class="form-group"><label class="form-label" for="mov-ref">Referencia (factura / guía)</label>
+                <div class="form-group"><label class="form-label" id="lbl-ref" for="mov-ref">Referencia (factura / guía)</label>
                   <input id="mov-ref" class="form-input" placeholder="Opcional" /></div>
                 <div class="form-group"><label class="form-label" for="mov-obs">Observación</label>
                   <input id="mov-obs" class="form-input" placeholder="Opcional" /></div>
@@ -266,7 +271,7 @@ export const initMovimientos = async () => {
               <h2 class="section-title">Historial</h2>
               <div class="filter-bar">
                 <button class="btn btn-sm btn-primary filter-btn" data-filter="todos">Todos</button>
-                ${Object.entries(TIPOS_MOV).map(([k, v]) => `<button class="btn btn-sm btn-secondary filter-btn" data-filter="${k}">${v.icon} ${v.label}</button>`).join('')}
+                ${Object.entries(TIPOS_MOV).filter(([k]) => k !== 'SALDO_INICIAL').map(([k, v]) => `<button class="btn btn-sm btn-secondary filter-btn" data-filter="${k}">${v.label}</button>`).join('')}
               </div>
               <div id="historial-container"></div>
             </div>

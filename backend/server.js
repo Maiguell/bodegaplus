@@ -6,17 +6,20 @@
 
 'use strict';
 
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors    = require('cors');
-const jwt     = require('jsonwebtoken');
 const bcrypt  = require('bcryptjs');
 const { init, getPool } = require('./db');
 const { buildSku } = require('./utils/sku');
+const { HttpError, h } = require('./lib/http');
+const { generarToken, authMiddleware, soloAdmin } = require('./lib/auth');
+const inv = require('./lib/inventario');
+const tienda = require('./routes/tienda');
 
 const app  = express();
 const PORT = process.env.PORT || 8080;
-const JWT_SECRET = process.env.JWT_SECRET || 'bodega-sneakers-dev-secret';
 
 app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
 app.use(express.json());
@@ -24,30 +27,6 @@ app.use(express.json());
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const db = () => getPool();
-
-/** Error HTTP controlado */
-class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-
-/** Envuelve handlers async para delegar errores al middleware final */
-const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-
-const generarToken = (u) => jwt.sign({ id: u.id, usuario: u.usuario, rol: u.rol }, JWT_SECRET, { expiresIn: '8h' });
-
-const authMiddleware = (req, res, next) => {
-  const header = req.headers['authorization'];
-  if (!header || !header.startsWith('Bearer ')) return res.status(401).json({ message: 'Token requerido.' });
-  try {
-    req.user = jwt.verify(header.slice(7), JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Token inválido o expirado.' });
-  }
-};
-
-const soloAdmin = (req, res, next) =>
-  req.user.rol === 'ADMIN' ? next() : res.status(403).json({ message: 'Solo un administrador puede hacer esto.' });
 
 const GENEROS = ['HOMBRE', 'MUJER', 'UNISEX', 'NINO'];
 
@@ -184,7 +163,7 @@ app.get('/api/inventario', authMiddleware, h(async (req, res) => {
   if (req.query.modeloId) { where += ' AND v.modelo_id = ?'; params.push(req.query.modeloId); }
 
   const [rows] = await db().query(`
-    SELECT v.id, v.sku, v.precio, v.stock_minimo AS stockMinimo,
+    SELECT v.id, v.sku, v.codigo_barras AS codigoBarras, v.precio, v.stock_minimo AS stockMinimo,
            m.id AS modeloId, m.nombre AS modelo, ma.nombre AS marca, c.nombre AS categoria,
            co.nombre AS color, co.hex AS colorHex, t.genero, t.us, t.eu
     FROM variantes v
@@ -213,7 +192,8 @@ app.get('/api/inventario', authMiddleware, h(async (req, res) => {
 
 // ── Movimientos ───────────────────────────────────────────────────────────────
 
-const TIPOS = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'AJUSTE'];
+/** Tipos que se registran desde el formulario general (los demás tienen su propio endpoint). */
+const TIPOS = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'AJUSTE', 'VENTA'];
 const MOTIVOS_DEVOLUCION = ['TALLA_INCORRECTA', 'DEFECTO', 'SOBRANTE', 'OTRO'];
 const MOTIVOS_AJUSTE = ['CONTEO', 'MERMA', 'OTRO'];
 
@@ -222,7 +202,9 @@ app.get('/api/movimientos', authMiddleware, h(async (req, res) => {
   const [rows] = await db().query(`
     SELECT mv.id, mv.tipo, mv.fecha, mv.motivo, mv.referencia, mv.observacion,
            u.nombre AS usuario, p.nombre AS proveedor, uo.nombre AS origen, ud.nombre AS destino,
-           (SELECT COALESCE(SUM(d.cantidad), 0) FROM movimiento_detalle d WHERE d.movimiento_id = mv.id) AS pares,
+           oc.codigo AS ordenCompra, mv.traslado_id AS trasladoId, mv.reserva_id AS reservaId,
+           (SELECT CAST(COALESCE(IF(mv.tipo = 'CAMBIO', SUM(GREATEST(d.cantidad, 0)), SUM(d.cantidad)), 0) AS SIGNED)
+              FROM movimiento_detalle d WHERE d.movimiento_id = mv.id) AS pares,
            (SELECT JSON_ARRAYAGG(JSON_OBJECT('sku', v.sku, 'modelo', m.nombre, 'color', co.nombre, 'talla', t.eu, 'cantidad', d.cantidad))
               FROM movimiento_detalle d JOIN variantes v ON v.id = d.variante_id JOIN modelos m ON m.id = v.modelo_id
               JOIN colores co ON co.id = v.color_id JOIN tallas t ON t.id = v.talla_id
@@ -232,58 +214,35 @@ app.get('/api/movimientos', authMiddleware, h(async (req, res) => {
     LEFT JOIN proveedores p ON p.id = mv.proveedor_id
     LEFT JOIN ubicaciones uo ON uo.id = mv.origen_id
     LEFT JOIN ubicaciones ud ON ud.id = mv.destino_id
+    LEFT JOIN ordenes_compra oc ON oc.id = mv.orden_compra_id
     ORDER BY mv.fecha DESC, mv.id DESC LIMIT ?`, [limit]);
   res.json(rows);
 }));
 
-/** Suma o resta pares de una variante en una ubicación; la resta falla si no alcanza. */
-async function moverStock(conn, varianteId, ubicacionId, delta) {
-  if (delta >= 0) {
-    await conn.query(
-      `INSERT INTO stock (variante_id, ubicacion_id, cantidad) VALUES (?,?,?)
-       ON DUPLICATE KEY UPDATE cantidad = cantidad + VALUES(cantidad)`, [varianteId, ubicacionId, delta]);
-    return;
-  }
-  const [r] = await conn.query(
-    'UPDATE stock SET cantidad = cantidad + ? WHERE variante_id = ? AND ubicacion_id = ? AND cantidad >= ?',
-    [delta, varianteId, ubicacionId, -delta]);
-  if (!r.affectedRows) {
-    const [[v]] = await conn.query(
-      `SELECT v.sku, COALESCE(s.cantidad, 0) AS disponible FROM variantes v
-       LEFT JOIN stock s ON s.variante_id = v.id AND s.ubicacion_id = ? WHERE v.id = ?`, [ubicacionId, varianteId]);
-    throw new HttpError(409, `Stock insuficiente de ${v?.sku ?? varianteId}: disponible ${v?.disponible ?? 0}, solicitado ${-delta}.`);
-  }
-}
-
 /**
  * POST /api/movimientos
- * Body: { tipo, localId?, proveedorId?, motivo?, referencia?, observacion?, detalle: [{ varianteId, cantidad }] }
- *   ENTRADA    → proveedor → bodega
+ * Body: { tipo, localId?, ubicacionId?, proveedorId?, motivo?, referencia?, observacion?, detalle: [{ varianteId, cantidad }] }
+ *   ENTRADA    → proveedor → bodega (entrada directa; contra OC usar /api/ordenes-compra/:id/recepcion)
  *   DESPACHO   → bodega → localId
  *   DEVOLUCION → localId → bodega (motivo requerido)
  *   AJUSTE     → sobre ubicacionId (localId o bodega); cantidad con signo (solo admin)
+ *   VENTA      → ubicacionId → cliente (HU06). Sin stock: 409 con las sedes que sí tienen.
+ * Cada línea pasa por el motor de inventario (lib/inventario.js), que deja traza en el kardex.
  */
 app.post('/api/movimientos', authMiddleware, h(async (req, res) => {
   const { tipo, localId, ubicacionId, proveedorId, motivo, referencia, observacion, detalle } = req.body ?? {};
   if (!TIPOS.includes(tipo)) throw new HttpError(400, 'Tipo de movimiento inválido.');
-  if (!Array.isArray(detalle) || !detalle.length) throw new HttpError(400, 'Agrega al menos una línea.');
   if (tipo === 'AJUSTE' && req.user.rol !== 'ADMIN') throw new HttpError(403, 'Solo un administrador puede hacer ajustes.');
-
-  // Consolida líneas repetidas de la misma variante
-  const lineas = new Map();
-  for (const l of detalle) {
-    const id = Number(l.varianteId), cant = Number(l.cantidad);
-    if (!id || !Number.isInteger(cant) || cant === 0 || (tipo !== 'AJUSTE' && cant < 0)) {
-      throw new HttpError(400, 'Cada línea necesita variante y una cantidad entera válida.');
-    }
-    lineas.set(id, (lineas.get(id) ?? 0) + cant);
-  }
+  const lineas = inv.consolidarLineas(detalle, { permitirNegativos: tipo === 'AJUSTE' });
+  if (lineas.some(([, c]) => c === 0)) throw new HttpError(400, 'Las líneas de una misma variante se anulan entre sí.');
 
   const [[bodega]] = await db().query("SELECT id FROM ubicaciones WHERE tipo = 'BODEGA' AND activo = 1 LIMIT 1");
   let origenId = null, destinoId = null;
 
   if (tipo === 'ENTRADA') {
     destinoId = bodega.id;
+  } else if (tipo === 'VENTA') {
+    origenId = (await inv.sedeActiva(db(), ubicacionId)).id;
   } else if (tipo === 'AJUSTE') {
     if (!MOTIVOS_AJUSTE.includes(motivo)) throw new HttpError(400, 'Motivo de ajuste inválido.');
     destinoId = Number(ubicacionId) || bodega.id;
@@ -297,33 +256,29 @@ app.post('/api/movimientos', authMiddleware, h(async (req, res) => {
     }
   }
 
-  const ids = [...lineas.keys()];
-  const [existentes] = await db().query('SELECT id FROM variantes WHERE id IN (?) AND activo = 1', [ids]);
-  if (existentes.length !== ids.length) throw new HttpError(404, 'Alguna variante no existe.');
+  await inv.validarVariantes(db(), lineas.map(([id]) => id));
 
-  const conn = await db().getConnection();
-  try {
-    await conn.beginTransaction();
-    const [mv] = await conn.query(
-      `INSERT INTO movimientos (tipo, usuario_id, proveedor_id, origen_id, destino_id, motivo, referencia, observacion)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [tipo, req.user.id, tipo === 'ENTRADA' ? proveedorId || null : null, origenId, destinoId,
-        tipo === 'DEVOLUCION' || tipo === 'AJUSTE' ? motivo : null, referencia?.trim() || null, observacion?.trim() || null]);
-
+  const id = await inv.enTransaccion(async (conn) => {
+    const movId = await inv.insertarMovimiento(conn, {
+      tipo, usuarioId: req.user.id, proveedorId: tipo === 'ENTRADA' ? proveedorId || null : null, origenId, destinoId,
+      motivo: tipo === 'DEVOLUCION' || tipo === 'AJUSTE' ? motivo : null, referencia, observacion,
+    });
     for (const [varianteId, cant] of lineas) {
-      await conn.query('INSERT INTO movimiento_detalle (movimiento_id, variante_id, cantidad) VALUES (?,?,?)', [mv.insertId, varianteId, cant]);
-      if (origenId) await moverStock(conn, varianteId, origenId, -cant);
-      await moverStock(conn, varianteId, destinoId, cant);
+      await inv.insertarDetalle(conn, movId, varianteId, cant);
+      if (origenId) await inv.moverStock(conn, movId, varianteId, origenId, -cant);
+      if (destinoId) await inv.moverStock(conn, movId, varianteId, destinoId, cant);
     }
-    await conn.commit();
-    res.status(201).json({ id: mv.insertId, tipo, lineas: lineas.size, pares: [...lineas.values()].reduce((a, b) => a + b, 0) });
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
+    return movId;
+  });
+  res.status(201).json({ id, tipo, lineas: lineas.length, pares: lineas.reduce((a, [, c]) => a + c, 0) });
 }));
+
+// ── Sprint 3 y 4: compras, kardex, traslados y tienda ─────────────────────────
+
+app.use('/api/ordenes-compra', require('./routes/compras'));
+app.use('/api/kardex', require('./routes/kardex'));
+app.use('/api/traslados', require('./routes/traslados'));
+app.use('/api', tienda.router);
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -355,17 +310,28 @@ app.get('/api/dashboard/metrics', authMiddleware, h(async (req, res) => {
 
   const [[hoy]] = await db().query(`
     SELECT COUNT(*) AS movimientosHoy,
-           COALESCE(SUM(tipo = 'ENTRADA'), 0) AS entradasHoy,
-           COALESCE(SUM(tipo = 'DESPACHO'), 0) AS despachosHoy
+           CAST(COALESCE(SUM(tipo = 'ENTRADA'), 0) AS SIGNED) AS entradasHoy,
+           CAST(COALESCE(SUM(tipo = 'DESPACHO'), 0) AS SIGNED) AS despachosHoy,
+           CAST(COALESCE(SUM(tipo = 'VENTA'), 0) AS SIGNED) AS ventasHoy
     FROM movimientos WHERE fecha >= CURDATE()`);
 
-  res.json({ ...tot, ...hoy, porUbicacion, bajoStock });
+  const [[pend]] = await db().query(`
+    SELECT (SELECT COUNT(*) FROM traslados WHERE estado = 'EN_TRANSITO') AS trasladosEnTransito,
+           (SELECT COUNT(*) FROM traslados WHERE novedad_estado = 'PENDIENTE') AS novedadesPendientes,
+           (SELECT COUNT(*) FROM ordenes_compra WHERE estado IN ('PENDIENTE','RECIBIDA_PARCIAL')) AS ordenesAbiertas,
+           (SELECT COUNT(*) FROM reservas WHERE estado = 'ACTIVA') AS reservasActivas`);
+
+  res.json({ ...tot, ...hoy, ...pend, porUbicacion, bajoStock });
 }));
 
 // ── Errores ───────────────────────────────────────────────────────────────────
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-  if (err.status) return res.status(err.status).json({ message: err.message });
+  if (err.status) return res.status(err.status).json({ message: err.message, ...err.extra });
+  if (err.sqlState === '45000') return res.status(409).json({ message: err.sqlMessage });
+  if (err.code === 'ER_LOCK_DEADLOCK' || err.code === 'ER_LOCK_WAIT_TIMEOUT') {
+    return res.status(409).json({ message: 'Otra operación estaba usando ese inventario. Intenta de nuevo.' });
+  }
   if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Ya existe un registro con esos datos.' });
   if (err.code === 'ER_NO_REFERENCED_ROW_2') return res.status(400).json({ message: 'Referencia inválida (marca, color o talla no existe).' });
   console.error(err);
@@ -374,8 +340,18 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 // ── Iniciar ───────────────────────────────────────────────────────────────────
 
+/** HU14: libera cada minuto las reservas vencidas. */
+const programarVencimientoReservas = () => {
+  const tick = () => tienda.liberarReservasVencidas()
+    .then((n) => { if (n) console.log(`🔓 ${n} reserva(s) vencida(s) liberada(s).`); })
+    .catch((err) => console.error('Error liberando reservas vencidas:', err.message));
+  tick();
+  setInterval(tick, 60_000).unref();
+};
+
 init()
   .then(() => app.listen(PORT, () => {
+    programarVencimientoReservas();
     console.log(`\n👟 Backend Bodega Sneakers en http://localhost:${PORT}`);
     console.log('   admin / admin123   (Administrador)');
     console.log('   bodega / bodega123 (Operador)\n');

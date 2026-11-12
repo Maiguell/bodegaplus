@@ -18,19 +18,24 @@ export const buildSidebar = (activeRoute = 'dashboard') => {
     ? user.nombre.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : 'AD';
 
-  /** @type {Array<{route: string, label: string, icon: string}>} */
+  /** @type {Array<{route: string, label: string, }>} */
   const navItems = [
-    { route: 'dashboard',   label: 'Dashboard',   icon: '⊞' },
-    { route: 'catalogo',    label: 'Catálogo',    icon: '👟' },
-    { route: 'inventario',  label: 'Inventario',  icon: '📦' },
-    { route: 'movimientos', label: 'Movimientos', icon: '↕️' },
-    { route: 'reportes',    label: 'Reportes',    icon: '📊' },
+    { route: 'dashboard',      label: 'Dashboard' },
+    { route: 'catalogo',       label: 'Catálogo' },
+    { route: 'inventario',     label: 'Inventario' },
+    { route: 'disponibilidad', label: 'Disponibilidad' },
+    { route: 'movimientos',    label: 'Movimientos' },
+    { route: 'compras',        label: 'Compras' },
+    { route: 'traslados',      label: 'Traslados' },
+    { route: 'tienda',         label: 'Cambios y reservas' },
+    { route: 'kardex',         label: 'Kardex' },
+    { route: 'reportes',       label: 'Reportes' },
   ];
 
   return `
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="sidebar-brand-icon">👟</div>
+        <div class="sidebar-brand-icon">S</div>
         <div>
           <div class="sidebar-brand-name">Sneakers</div>
           <div class="sidebar-brand-sub">Bodega & Locales</div>
@@ -43,7 +48,7 @@ export const buildSidebar = (activeRoute = 'dashboard') => {
           <a href="#/${item.route}"
              class="nav-item ${activeRoute === item.route ? 'active' : ''}"
              aria-current="${activeRoute === item.route ? 'page' : 'false'}">
-            <span aria-hidden="true">${item.icon}</span>
+
             ${item.label}
           </a>
         `).join('')}

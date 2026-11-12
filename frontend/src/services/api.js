@@ -45,7 +45,10 @@ const request = async (endpoint, options = {}) => {
   if (!response.ok) {
     // Intenta parsear el mensaje de error del backend
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(errorData.message ?? `Error HTTP ${response.status}`);
+    const error = new Error(errorData.message ?? `Error HTTP ${response.status}`);
+    error.status = response.status;
+    error.data = errorData; // p. ej. { codigo: 'STOCK_INSUFICIENTE', sugerencias: [...] }
+    throw error;
   }
 
   // 204 No Content no tiene cuerpo

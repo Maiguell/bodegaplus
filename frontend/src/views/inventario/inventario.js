@@ -31,7 +31,7 @@ const renderGrid = () => {
   const cont = document.getElementById('grid-container');
   if (!cont) return;
   if (!variantes.length) {
-    cont.innerHTML = `<div class="empty-state" style="padding:48px;"><div class="empty-state-icon">👟</div>
+    cont.innerHTML = `<div class="empty-state" style="padding:48px;">
       <div class="empty-state-title">Este modelo aún no tiene variantes</div>
       <div class="empty-state-desc">Créalas desde el Catálogo (＋ Variantes).</div></div>`;
     return;
@@ -138,7 +138,7 @@ export const initInventario = async () => {
 
   if (!modelos.length) {
     document.getElementById('grid-container').innerHTML =
-      '<div class="empty-state"><div class="empty-state-icon">👟</div><div class="empty-state-title">Aún no hay modelos</div></div>';
+      '<div class="empty-state"><div class="empty-state-title">Aún no hay modelos</div></div>';
     return;
   }
 

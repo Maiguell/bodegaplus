@@ -87,6 +87,24 @@ async function seed(pool) {
     filas.push([id, u, c]);
   }
   await pool.query('INSERT INTO stock (variante_id, ubicacion_id, cantidad) VALUES ?', [filas]);
+
+  await seedOrdenesCompra(pool);
+}
+
+/** Órdenes de compra pendientes para probar la recepción contra OC (HU05). */
+async function seedOrdenesCompra(pool) {
+  const [[admin]] = await pool.query("SELECT id FROM usuarios WHERE usuario = 'admin'");
+  const [[bodega]] = await pool.query("SELECT id FROM ubicaciones WHERE tipo = 'BODEGA' LIMIT 1");
+  const [provs] = await pool.query('SELECT id FROM proveedores ORDER BY id');
+  const [vars] = await pool.query('SELECT id FROM variantes ORDER BY id LIMIT 12');
+  const ordenes = [['OC-0011', provs[0].id, vars.slice(0, 6)], ['OC-0012', provs[1].id, vars.slice(6, 12)]];
+  for (const [codigo, proveedorId, lineas] of ordenes) {
+    const [r] = await pool.query(
+      'INSERT INTO ordenes_compra (codigo, proveedor_id, destino_id, usuario_id, observacion) VALUES (?,?,?,?,?)',
+      [codigo, proveedorId, bodega.id, admin.id, 'Pedido de reposición de temporada']);
+    await pool.query('INSERT INTO orden_compra_detalle (orden_id, variante_id, cantidad_pedida) VALUES ?',
+      [lineas.map((v, i) => [r.insertId, v.id, 4 + (i % 3) * 2])]);
+  }
 }
 
 module.exports = { seed };

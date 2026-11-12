@@ -22,7 +22,7 @@ const esAdmin = () => getUser()?.rol === 'ADMIN';
 
 const buildRow = (m) => `
   <tr>
-    <td style="font-weight:500;color:var(--clr-text-primary);">${esc(m.marca)} ${esc(m.nombre)}</td>
+    <td style="font-weight:600;color:var(--clr-text-primary);">${esc(m.marca)} ${esc(m.nombre)}</td>
     <td>${esc(m.categoria)}</td>
     <td>${GENEROS[m.genero] ?? m.genero}</td>
     <td>${m.codigoEstilo ? `<span class="product-sku">${esc(m.codigoEstilo)}</span>` : '—'}</td>
@@ -30,11 +30,11 @@ const buildRow = (m) => `
     <td>${m.variantes}</td>
     <td style="font-weight:700;">${numero(m.pares)}</td>
     <td class="action-buttons">
-      <a class="btn btn-sm btn-secondary" href="#/inventario?modelo=${m.id}">📦 Stock</a>
+      <a class="btn btn-sm btn-secondary" href="#/inventario?modelo=${m.id}">Stock</a>
       ${esAdmin() ? `
         <button class="btn btn-sm btn-secondary" data-act="variantes" data-id="${m.id}">＋ Variantes</button>
-        <button class="btn btn-sm btn-secondary" data-act="editar" data-id="${m.id}">✏️</button>
-        <button class="btn btn-sm btn-danger" data-act="eliminar" data-id="${m.id}">🗑️</button>` : ''}
+        <button class="btn btn-sm btn-secondary" data-act="editar" data-id="${m.id}">Editar</button>
+        <button class="btn btn-sm btn-danger" data-act="eliminar" data-id="${m.id}">Eliminar</button>` : ''}
     </td>
   </tr>`;
 
@@ -43,7 +43,7 @@ const renderTable = (lista) => {
   if (!tbody) return;
   tbody.innerHTML = lista.length
     ? lista.map(buildRow).join('')
-    : `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">👟</div>
+    : `<tr><td colspan="8"><div class="empty-state">
          <div class="empty-state-title">Sin modelos</div>
          <div class="empty-state-desc">No se encontraron modelos con ese criterio.</div></div></td></tr>`;
 };
@@ -85,7 +85,7 @@ const opciones = (lista, sel) =>
   lista.map((o) => `<option value="${o.id}" ${o.id === sel ? 'selected' : ''}>${esc(o.nombre)}</option>`).join('');
 
 const abrirModalModelo = (m = null) => {
-  const { overlay, close } = abrirModal(m ? '✏️ Editar modelo' : '➕ Nuevo modelo', `
+  const { overlay, close } = abrirModal(m ? 'Editar modelo' : 'Nuevo modelo', `
     <form class="modal-form" novalidate>
       <div class="modal-form-row">
         <div class="form-group"><label class="form-label">Marca *</label>
@@ -136,7 +136,7 @@ const abrirModalVariantes = (m) => {
           `<label class="talla-chip"><input type="checkbox" name="talla" value="${t.id}" />${tallaLabel(t)}</label>`).join('')
           : '<span style="color:var(--clr-text-muted);">No hay tallas cargadas para este género.</span>'}</div>
       </div>
-      <p style="font-size:0.78rem;color:var(--clr-text-muted);">El SKU se genera solo (marca-modelo-color-talla). Las variantes que ya existen se omiten.</p>
+      <p style="font-size:var(--fs-small);color:var(--clr-text-muted);">El SKU se genera solo (marca-modelo-color-talla). Las variantes que ya existen se omiten.</p>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" data-close>Cancelar</button>
         <button type="submit" class="btn btn-primary">Crear variantes</button>

@@ -15,12 +15,12 @@ import { esc, moneda, numero, MOTIVOS } from '../../utils/format.js';
 const barras = (items, color = 'var(--clr-accent)') => {
   const max = Math.max(1, ...items.map((i) => i.valor));
   return items.length ? items.map((i) => `
-    <div style="display:grid;grid-template-columns:130px 1fr 60px;gap:12px;align-items:center;padding:6px 0;font-size:0.82rem;">
+    <div style="display:grid;grid-template-columns:130px 1fr 60px;gap:12px;align-items:center;padding:6px 0;font-size:var(--fs-small);">
       <span style="color:var(--clr-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(i.label)}</span>
-      <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:10px;">
-        <div style="width:${(i.valor / max) * 100}%;height:100%;background:${color};border-radius:4px;"></div></div>
+      <div style="background:var(--clr-sage);height:10px;">
+        <div style="width:${(i.valor / max) * 100}%;height:100%;background:${color};"></div></div>
       <strong style="text-align:right;">${numero(i.valor)}</strong>
-    </div>`).join('') : '<p style="color:var(--clr-text-muted);font-size:0.82rem;">Sin datos.</p>';
+    </div>`).join('') : '<p style="color:var(--clr-text-muted);font-size:var(--fs-small);">Sin datos.</p>';
 };
 
 const suma = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
@@ -64,7 +64,7 @@ export const initReportes = async () => {
       const vs = variantes.filter((v) => v.modeloId === m.id);
       const bajo = vs.filter((v) => (v.stock[bodega.id] ?? 0) <= v.stockMinimo).length;
       return `<tr>
-        <td style="font-weight:500;color:var(--clr-text-primary);">${esc(m.marca)} ${esc(m.nombre)}</td>
+        <td style="font-weight:600;color:var(--clr-text-primary);">${esc(m.marca)} ${esc(m.nombre)}</td>
         <td>${esc(m.categoria)}</td>
         <td>${vs.length}</td>
         <td style="font-weight:700;">${numero(suma(vs, (v) => v.stock[bodega.id] ?? 0))}</td>
@@ -75,13 +75,13 @@ export const initReportes = async () => {
 
     renderView(shell(`
       <div class="metrics-grid" style="margin-bottom:28px;">
-        <div class="card metric-card indigo"><div class="metric-header"><span class="metric-label">Total de pares</span><div class="metric-icon indigo">👟</div></div>
+        <div class="card metric-card indigo"><div class="metric-header"><span class="metric-label">Total de pares</span></div>
           <div class="metric-value">${numero(totalPares)}</div></div>
-        <div class="card metric-card green"><div class="metric-header"><span class="metric-label">Valor inventario</span><div class="metric-icon green">💰</div></div>
-          <div class="metric-value" style="font-size:1.5rem;">${moneda(valor)}</div></div>
-        <div class="card metric-card amber"><div class="metric-header"><span class="metric-label">Agotadas en bodega</span><div class="metric-icon amber">⚠️</div></div>
+        <div class="card metric-card green"><div class="metric-header"><span class="metric-label">Valor inventario</span></div>
+          <div class="metric-value" style="font-size:var(--fs-h2);">${moneda(valor)}</div></div>
+        <div class="card metric-card amber"><div class="metric-header"><span class="metric-label">Agotadas en bodega</span></div>
           <div class="metric-value">${agotadasBodega}</div></div>
-        <div class="card metric-card sky"><div class="metric-header"><span class="metric-label">Devoluciones</span><div class="metric-icon sky">↩️</div></div>
+        <div class="card metric-card sky"><div class="metric-header"><span class="metric-label">Devoluciones</span></div>
           <div class="metric-value">${numero(suma(devoluciones, (m) => m.pares))}</div>
           <div class="metric-trend"><span>pares (últimos 500 mov.)</span></div></div>
       </div>
@@ -90,12 +90,12 @@ export const initReportes = async () => {
         <div class="card" style="padding:24px;"><h2 class="section-title">Pares por marca</h2>${barras(porMarca)}</div>
         <div class="card" style="padding:24px;"><h2 class="section-title">Pares por ubicación</h2>${barras(porUbicacion, 'var(--clr-info)')}</div>
         <div class="card" style="padding:24px;"><h2 class="section-title">Tallas más agotadas en bodega</h2>${barras(tallasAgotadas, 'var(--clr-warning)')}
-          <p style="font-size:0.72rem;color:var(--clr-text-muted);padding-top:8px;">Variantes con 0 pares, agrupadas por talla.</p></div>
+          <p style="font-size:var(--fs-meta);color:var(--clr-text-muted);padding-top:8px;">Variantes con 0 pares, agrupadas por talla.</p></div>
         <div class="card" style="padding:24px;"><h2 class="section-title">Devoluciones por motivo</h2>${barras(devPorMotivo, 'var(--clr-danger)')}</div>
       </div>
 
       <div class="card" style="overflow:hidden;">
-        <div style="padding:20px 24px;border-bottom:1px solid var(--clr-border);"><h2 style="font-size:1rem;font-weight:700;">Estado por modelo</h2></div>
+        <div style="padding:20px 24px;border-bottom:1px solid var(--clr-border);"><h2 style="font-family:var(--font-display);font-size:var(--fs-h3);font-weight:700;">Estado por modelo</h2></div>
         <div style="overflow-x:auto;"><table class="data-table">
           <thead><tr><th>Modelo</th><th>Categoría</th><th>Variantes</th><th>Pares en bodega</th><th>Pares en locales</th><th>Estado</th></tr></thead>
           <tbody>${filasModelo || '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--clr-text-muted);">Sin datos</td></tr>'}</tbody>

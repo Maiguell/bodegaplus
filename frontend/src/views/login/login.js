@@ -16,7 +16,7 @@ const loginHTML = `
   <!-- Panel Hero / Branding -->
   <div class="login-hero">
     <div class="login-hero-content">
-      <div class="login-hero-icon">👟</div>
+      <div class="login-hero-icon">S</div>
       <h1 class="login-hero-title">Sneakers<br/>Bodega &amp; Locales</h1>
       <p class="login-hero-subtitle">
         Control de inventario de zapatillas por modelo, color y talla, desde la bodega central hasta tus locales.

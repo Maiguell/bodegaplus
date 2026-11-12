@@ -79,6 +79,41 @@ export const setupRouter = () => {
       initMovimientos();
     })
 
+    // ── Compras: órdenes de compra y recepción (HU05) ───────────────────
+    .on('/compras', async () => {
+      if (!requireAuth()) return;
+      const { initCompras } = await import('./views/compras/compras.js');
+      initCompras();
+    })
+
+    // ── Traslados entre sedes (HU08 / HU09) ─────────────────────────────
+    .on('/traslados', async () => {
+      if (!requireAuth()) return;
+      const { initTraslados } = await import('./views/traslados/traslados.js');
+      initTraslados();
+    })
+
+    // ── Disponibilidad multisede (HU13) ─────────────────────────────────
+    .on('/disponibilidad', async () => {
+      if (!requireAuth()) return;
+      const { initDisponibilidad } = await import('./views/disponibilidad/disponibilidad.js');
+      initDisponibilidad();
+    })
+
+    // ── Cambios de talla y reservas (HU10 / HU14) ───────────────────────
+    .on('/tienda', async () => {
+      if (!requireAuth()) return;
+      const { initTienda } = await import('./views/tienda/tienda.js');
+      initTienda();
+    })
+
+    // ── Kardex (HU07) — admite ?sku= ────────────────────────────────────
+    .on('/kardex', async (match) => {
+      if (!requireAuth()) return;
+      const { initKardex } = await import('./views/kardex/kardex.js');
+      initKardex(match?.params ?? {});
+    })
+
     // ── Reportes ────────────────────────────────────────────────────────
     .on('/reportes', async () => {
       if (!requireAuth()) return;
@@ -90,7 +125,7 @@ export const setupRouter = () => {
     .notFound(() => {
       renderView(`
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px;">
-          <h1 style="font-size:4rem;font-weight:800;color:var(--clr-accent);">404</h1>
+          <h1 style="font-family:var(--font-display);font-size:4rem;font-weight:700;color:var(--clr-accent);">404</h1>
           <p style="color:var(--clr-text-secondary);">Página no encontrada.</p>
           <a href="#/dashboard" style="color:var(--clr-accent);">← Volver al inicio</a>
         </div>
