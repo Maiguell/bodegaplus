@@ -6,8 +6,7 @@
 'use strict';
 
 const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'bodega-sneakers-dev-secret';
+const { jwtSecret: JWT_SECRET } = require('./config');
 
 const generarToken = (u) => jwt.sign({ id: u.id, usuario: u.usuario, rol: u.rol }, JWT_SECRET, { expiresIn: '8h' });
 

@@ -1,24 +1,18 @@
 /**
  * @file db/index.js
- * @description Pool MySQL e inicialización: crea la base y las tablas desde schema.sql
- * y carga datos de ejemplo la primera vez (si no hay usuarios).
+ * @description Pool MySQL e inicialización: crea la base y las tablas desde schema.sql,
+ * carga datos de ejemplo la primera vez (si no hay usuarios) y aplica migraciones idempotentes.
  */
 
 'use strict';
 
 const path   = require('path');
 const fs     = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const mysql  = require('mysql2/promise');
+const config = require('../lib/config');
 const { seed } = require('./seed');
 
-const cfg = {
-  host:     process.env.DB_HOST || '127.0.0.1',
-  port:     Number(process.env.DB_PORT) || 3306,
-  user:     process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD ?? '',
-};
-const DB_NAME = process.env.DB_NAME || 'bodega_sneakers';
+const { database: DB_NAME, ...cfg } = config.db;
 
 let pool;
 
@@ -32,40 +26,55 @@ async function init() {
 
   pool = mysql.createPool({ ...cfg, database: DB_NAME, waitForConnections: true, connectionLimit: 10, decimalNumbers: true });
 
+  await migrate(pool);
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM usuarios');
-  if (n === 0) {
-    await seed(pool);
+  if (n === 0 && config.seed.habilitado) {
+    await seed(pool, config.seed);
+    await abrirKardex(pool);
     console.log('🌱 Datos de ejemplo cargados.');
   }
-  await migrate(pool);
   return pool;
 }
 
+const getPool = () => pool;
+
 const TIPOS_MOVIMIENTO = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'AJUSTE', 'VENTA', 'CAMBIO',
   'TRASLADO_ENVIO', 'TRASLADO_RECEPCION', 'RESERVA', 'LIBERACION_RESERVA'];
+const MOTIVOS = ['TALLA_INCORRECTA', 'DEFECTO', 'SOBRANTE', 'CONTEO', 'MERMA', 'OTRO', 'AVERIA', 'PERDIDA', 'ERROR_CONTEO'];
+const lista = (vals) => vals.map((v) => `'${v}'`).join(',');
 
-/**
- * Lleva una base creada con un esquema anterior al esquema actual (idempotente):
- * amplía los tipos de movimiento, agrega columnas de documento, abre el kardex con el
- * saldo actual y crea los triggers que hacen inmutable la bitácora (RNF-04).
- */
-async function migrate(pool) {
-  await pool.query(`ALTER TABLE movimientos MODIFY tipo ENUM(${TIPOS_MOVIMIENTO.map((t) => `'${t}'`).join(',')}) NOT NULL`);
+/** Agrega una columna si no existe. */
+async function agregarColumna(pool, tabla, columna, definicion) {
+  const [[{ n }]] = await pool.query(
+    'SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+    [tabla, columna]);
+  if (!n) await pool.query(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${definicion}`);
+}
 
-  const [cols] = await pool.query(
-    "SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'movimientos'");
-  const existentes = new Set(cols.map((r) => r.c));
-  for (const col of ['orden_compra_id', 'traslado_id', 'reserva_id']) {
-    if (!existentes.has(col)) await pool.query(`ALTER TABLE movimientos ADD COLUMN ${col} INT NULL`);
-  }
-
-  // Saldo inicial: el kardex arranca con el stock que haya al activarlo
+/** Saldo inicial: el kardex arranca con el stock que haya al activarlo. */
+async function abrirKardex(pool) {
   const [[{ k }]] = await pool.query('SELECT COUNT(*) AS k FROM kardex');
   if (k === 0) {
     await pool.query(`INSERT INTO kardex (movimiento_id, variante_id, ubicacion_id, cantidad, saldo)
                       SELECT NULL, variante_id, ubicacion_id, cantidad, cantidad FROM stock WHERE cantidad <> 0
                       ORDER BY variante_id, ubicacion_id`);
   }
+}
+
+/**
+ * Lleva una base creada con un esquema anterior al esquema actual (idempotente):
+ * amplía tipos y motivos de movimiento, agrega columnas nuevas, abre el kardex con el
+ * saldo actual y crea los triggers que hacen inmutable la bitácora (RNF-04).
+ */
+async function migrate(pool) {
+  await pool.query(`ALTER TABLE movimientos MODIFY tipo ENUM(${lista(TIPOS_MOVIMIENTO)}) NOT NULL`);
+  await pool.query(`ALTER TABLE movimientos MODIFY motivo ENUM(${lista(MOTIVOS)}) NULL`);
+  for (const col of ['orden_compra_id', 'traslado_id', 'reserva_id', 'ajuste_id']) {
+    await agregarColumna(pool, 'movimientos', col, 'INT NULL');
+  }
+  await agregarColumna(pool, 'variantes', 'costo', 'DECIMAL(12,2) NULL');
+
+  await abrirKardex(pool);
 
   // Bitácora de solo inserción
   const inmutables = { kardex: 'El kardex', movimientos: 'Un movimiento', movimiento_detalle: 'El detalle de un movimiento' };
@@ -82,7 +91,5 @@ async function migrate(pool) {
     console.warn('⚠️  No se pudieron crear los triggers de inmutabilidad:', err.message);
   }
 }
-
-const getPool = () => pool;
 
 module.exports = { init, getPool };

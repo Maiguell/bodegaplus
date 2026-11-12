@@ -46,16 +46,20 @@ const buildMetricCards = (m) => {
 /** Avisos operativos: traslados por recibir, novedades, OC abiertas y reservas activas. */
 const pendientes = (m) => {
   const avisos = [
+    [m.alertasActivas, 'talla(s) por debajo del mínimo', '#/alertas'],
+    [m.ajustesPendientes, 'ajuste(s) pendiente(s) de aprobación', '#/ajustes'],
+    [m.conteosAbiertos, 'conteo(s) físico(s) en curso', '#/conteos'],
     [m.trasladosEnTransito, 'traslado(s) en tránsito por recibir', '#/traslados'],
     [m.novedadesPendientes, 'novedad(es) de traslado por revisar', '#/traslados'],
     [m.ordenesAbiertas, 'orden(es) de compra por recibir', '#/compras'],
     [m.reservasActivas, 'reserva(s) activa(s)', '#/tienda'],
   ].filter(([n]) => n > 0);
-  if (!avisos.length) return '';
-  return `<div class="card" style="padding:16px 20px;margin-top:20px;display:flex;gap:20px;flex-wrap:wrap;font-size:var(--fs-small);">
+  return `<div id="dash-avisos">${avisos.length ? `<div class="card" style="padding:16px 20px;margin-top:20px;display:flex;gap:20px;flex-wrap:wrap;font-size:var(--fs-small);">
     ${avisos.map(([n, txt, href]) => `<a href="${href}" style="color:var(--clr-text-primary);"><strong>${numero(n)}</strong> ${txt} →</a>`).join('')}
-  </div>`;
+  </div>` : ''}</div>`;
 };
+
+let relojAvisos = null;
 
 const buildMovimientoItem = (mov) => {
   const t = TIPOS_MOV[mov.tipo] ?? { label: mov.tipo, signo: '·', clase: 'ajuste' };
@@ -145,4 +149,12 @@ export const initDashboard = async () => {
     movimientos.status === 'fulfilled' ? movimientos.value : [],
   ));
   attachSidebarLogout();
+
+  // HT06 / HU15: los avisos (alertas de stock, ajustes, traslados…) se refrescan cada 30 s
+  clearInterval(relojAvisos);
+  relojAvisos = setInterval(async () => {
+    const el = document.getElementById('dash-avisos');
+    if (!el) { clearInterval(relojAvisos); return; }
+    try { el.outerHTML = pendientes(await getDashboardMetrics()); } catch { /* reintenta en el próximo ciclo */ }
+  }, 30_000);
 };

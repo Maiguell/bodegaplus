@@ -2,25 +2,23 @@
  * @module movimientosView
  * @description Registro de movimientos con varias líneas (SKU + pares):
  * ENTRADA de proveedor, DESPACHO a un local, DEVOLUCIÓN desde un local, VENTA en una sede (HU06)
- * y AJUSTE (solo admin). El historial muestra todos los tipos, incluidos traslados, cambios y reservas.
+ * El historial muestra todos los tipos, incluidos traslados, cambios, reservas y ajustes aprobados.
  */
 
 import './movimientos.css';
 import { renderView } from '../../router.js';
 import { buildSidebar, attachSidebarLogout } from '../../components/sidebar.js';
-import { getUser } from '../../services/authService.js';
 import { registrarMovimiento, getMovimientos } from '../../services/movimientosService.js';
 import { getCatalogo, getInventario } from '../../services/catalogoService.js';
 import { showToast } from '../../utils/toast.js';
 import { esc, fechaHora, numero, TIPOS_MOV, MOTIVOS, rutaMovimiento } from '../../utils/format.js';
 import { buscarVariante, mensajeSugerencias } from '../../utils/variantes.js';
 
-/** Tipos que se registran desde este formulario. */
-const TIPOS_FORM = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'VENTA', 'AJUSTE'];
+/** Tipos que se registran desde este formulario. Los ajustes van por la vista Ajustes (requieren aprobación, HU11). */
+const TIPOS_FORM = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'VENTA'];
 
 const MOTIVOS_POR_TIPO = {
   DEVOLUCION: ['TALLA_INCORRECTA', 'DEFECTO', 'SOBRANTE', 'OTRO'],
-  AJUSTE: ['CONTEO', 'MERMA', 'OTRO'],
 };
 
 let tipo = 'ENTRADA';
@@ -42,7 +40,7 @@ const ubicacionOrigen = () => {
   const val = (id) => document.getElementById(id)?.value;
   if (tipo === 'DESPACHO') return bodega()?.id;
   if (tipo === 'DEVOLUCION') return Number(val('mov-local'));
-  if (tipo === 'AJUSTE' || tipo === 'VENTA') return Number(val('mov-ubicacion'));
+  if (tipo === 'VENTA') return Number(val('mov-ubicacion'));
   return bodega()?.id; // ENTRADA: se muestra el stock actual de la bodega
 };
 
@@ -67,16 +65,9 @@ const renderCamposTipo = () => {
     VENTA: `
       <div class="form-group"><label class="form-label" for="mov-ubicacion">Sede que vende *</label>
         <select id="mov-ubicacion" class="form-select">${opts([...locales(), ...catalogo.ubicaciones.filter((u) => u.tipo !== 'LOCAL')])}</select></div>`,
-    AJUSTE: `
-      <div class="form-group"><label class="form-label" for="mov-ubicacion">Ubicación *</label>
-        <select id="mov-ubicacion" class="form-select">${opts(catalogo.ubicaciones)}</select></div>
-      <div class="form-group"><label class="form-label" for="mov-motivo">Motivo *</label>
-        <select id="mov-motivo" class="form-select">${motivos}</select></div>`,
   };
   el.innerHTML = campos[tipo];
   el.querySelectorAll('select').forEach((s) => s.addEventListener('change', actualizarDisponible));
-  document.getElementById('mov-cantidad').min = tipo === 'AJUSTE' ? '' : '1';
-  document.getElementById('lbl-cantidad').textContent = tipo === 'AJUSTE' ? 'Diferencia (± pares) *' : 'Pares *';
   document.getElementById('lbl-ref').textContent = tipo === 'VENTA' ? 'Factura de venta' : 'Referencia (factura / guía)';
 };
 
@@ -122,7 +113,7 @@ const agregarLinea = () => {
   const v = varianteDeInput();
   const cantidad = parseInt(document.getElementById('mov-cantidad').value, 10);
   if (!v) return showToast('SKU no encontrado. Elige uno de la lista.', 'error');
-  if (!cantidad || (tipo !== 'AJUSTE' && cantidad < 0)) return showToast('Ingresa una cantidad válida.', 'error');
+  if (!cantidad || cantidad < 0) return showToast('Ingresa una cantidad válida.', 'error');
 
   const existente = lineas.find((l) => l.variante.id === v.id);
   if (existente) existente.cantidad += cantidad; else lineas.push({ variante: v, cantidad });
@@ -213,7 +204,7 @@ export const initMovimientos = async () => {
     showToast(err.message ?? 'Error al cargar datos.', 'error');
   }
 
-  const tipos = TIPOS_FORM.filter((t) => t !== 'AJUSTE' || getUser()?.rol === 'ADMIN');
+  const tipos = TIPOS_FORM;
   tipo = 'ENTRADA';
   lineas = [];
   filtroHistorial = 'todos';

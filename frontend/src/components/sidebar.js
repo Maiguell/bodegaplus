@@ -18,19 +18,35 @@ export const buildSidebar = (activeRoute = 'dashboard') => {
     ? user.nombre.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : 'AD';
 
-  /** @type {Array<{route: string, label: string, }>} */
-  const navItems = [
-    { route: 'dashboard',      label: 'Dashboard' },
-    { route: 'catalogo',       label: 'Catálogo' },
-    { route: 'inventario',     label: 'Inventario' },
-    { route: 'disponibilidad', label: 'Disponibilidad' },
-    { route: 'movimientos',    label: 'Movimientos' },
-    { route: 'compras',        label: 'Compras' },
-    { route: 'traslados',      label: 'Traslados' },
-    { route: 'tienda',         label: 'Cambios y reservas' },
-    { route: 'kardex',         label: 'Kardex' },
-    { route: 'reportes',       label: 'Reportes' },
+  /** Menú agrupado por secciones. */
+  const secciones = [
+    ['Principal', [
+      { route: 'dashboard',      label: 'Dashboard' },
+      { route: 'catalogo',       label: 'Catálogo' },
+      { route: 'inventario',     label: 'Inventario' },
+      { route: 'disponibilidad', label: 'Disponibilidad' },
+    ]],
+    ['Operación', [
+      { route: 'movimientos',    label: 'Movimientos' },
+      { route: 'compras',        label: 'Compras' },
+      { route: 'traslados',      label: 'Traslados' },
+      { route: 'tienda',         label: 'Cambios y reservas' },
+    ]],
+    ['Control', [
+      { route: 'alertas',        label: 'Alertas de stock' },
+      { route: 'ajustes',        label: 'Ajustes' },
+      { route: 'conteos',        label: 'Conteo físico' },
+      { route: 'kardex',         label: 'Kardex' },
+    ]],
+    ['Análisis', [
+      { route: 'informes',       label: 'Informes' },
+      { route: 'reportes',       label: 'Reportes' },
+    ]],
   ];
+  const navItem = (item) => `
+          <a href="#/${item.route}"
+             class="nav-item ${activeRoute === item.route ? 'active' : ''}"
+             aria-current="${activeRoute === item.route ? 'page' : 'false'}">${item.label}</a>`;
 
   return `
     <aside class="sidebar">
@@ -43,15 +59,9 @@ export const buildSidebar = (activeRoute = 'dashboard') => {
       </div>
 
       <nav class="sidebar-nav" aria-label="Navegación principal">
-        <div class="sidebar-section-label">Menú Principal</div>
-        ${navItems.map(item => `
-          <a href="#/${item.route}"
-             class="nav-item ${activeRoute === item.route ? 'active' : ''}"
-             aria-current="${activeRoute === item.route ? 'page' : 'false'}">
-
-            ${item.label}
-          </a>
-        `).join('')}
+        ${secciones.map(([titulo, items]) => `
+          <div class="sidebar-section-label">${titulo}</div>
+          ${items.map(navItem).join('')}`).join('')}
       </nav>
 
       <div class="sidebar-footer">

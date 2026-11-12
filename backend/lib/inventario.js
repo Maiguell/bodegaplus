@@ -16,6 +16,7 @@
 
 const { getPool } = require('../db');
 const { HttpError } = require('./http');
+const { evaluarAlerta } = require('./alertas');
 
 /** Ejecuta `fn(conn)` dentro de una transacción; revierte si lanza. */
 async function enTransaccion(fn) {
@@ -78,6 +79,7 @@ async function moverStock(conn, movimientoId, varianteId, ubicacionId, delta) {
   await conn.query(
     'INSERT INTO kardex (movimiento_id, variante_id, ubicacion_id, cantidad, saldo) VALUES (?,?,?,?,?)',
     [movimientoId, varianteId, ubicacionId, delta, saldo]);
+  await evaluarAlerta(conn, varianteId, ubicacionId); // HU15: alerta por evento
   return saldo;
 }
 
@@ -85,11 +87,11 @@ async function moverStock(conn, movimientoId, varianteId, ubicacionId, delta) {
 async function insertarMovimiento(conn, m) {
   const [r] = await conn.query(
     `INSERT INTO movimientos (tipo, usuario_id, proveedor_id, origen_id, destino_id, motivo, referencia, observacion,
-                              orden_compra_id, traslado_id, reserva_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+                              orden_compra_id, traslado_id, reserva_id, ajuste_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [m.tipo, m.usuarioId, m.proveedorId ?? null, m.origenId ?? null, m.destinoId ?? null, m.motivo ?? null,
       m.referencia?.trim?.() || null, m.observacion?.trim?.() || null,
-      m.ordenCompraId ?? null, m.trasladoId ?? null, m.reservaId ?? null]);
+      m.ordenCompraId ?? null, m.trasladoId ?? null, m.reservaId ?? null, m.ajusteId ?? null]);
   return r.insertId;
 }
 

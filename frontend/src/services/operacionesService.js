@@ -38,3 +38,31 @@ export const getReservas = (estado) => api.get(`/reservas${qs({ estado })}`);
 export const crearReserva = (reserva) => api.post('/reservas', reserva);
 export const venderReserva = (id, referencia) => api.post(`/reservas/${id}/vender`, { referencia });
 export const cancelarReserva = (id) => api.post(`/reservas/${id}/cancelar`, {});
+
+// ── Ajustes (HU11) ────────────────────────────────────────────────────────────
+export const getAjustes = (estado) => api.get(`/ajustes${qs({ estado })}`);
+/** @param {{ubicacionId: number, causal: string, observacion: string, lineas: Array<{varianteId: number, cantidad: number}>}} a */
+export const crearAjuste = (a) => api.post('/ajustes', a);
+export const aprobarAjuste = (id, comentario) => api.post(`/ajustes/${id}/aprobar`, { comentario });
+export const rechazarAjuste = (id, comentario) => api.post(`/ajustes/${id}/rechazar`, { comentario });
+
+// ── Conteos físicos (HU12) ────────────────────────────────────────────────────
+export const getConteos = () => api.get('/conteos');
+export const getConteo = (id) => api.get(`/conteos/${id}`);
+export const iniciarConteo = (ubicacionId, observacion) => api.post('/conteos', { ubicacionId, observacion });
+/** @param {Array<{varianteId?: number, codigo?: string, cantidad: number, modo: 'sumar'|'fijar'}>} lineas */
+export const capturarConteo = (id, lineas) => api.post(`/conteos/${id}/capturas`, { lineas });
+export const cerrarConteo = (id, noContadasEnCero) => api.post(`/conteos/${id}/cerrar`, { noContadasEnCero });
+export const cancelarConteo = (id) => api.post(`/conteos/${id}/cancelar`, {});
+
+// ── Alertas de stock mínimo (HU15) ────────────────────────────────────────────
+export const getAlertas = (filtros = {}) => api.get(`/alertas${qs(filtros)}`);
+export const fijarMinimo = (varianteId, ubicacionId, minimo) => api.put('/stock-minimos', { varianteId, ubicacionId, minimo });
+
+// ── Informes (HU16 / HU17 / HU18) y procesos (HT06 / HT08) ────────────────────
+export const getRotacion = (filtros) => api.get(`/informes/rotacion${qs(filtros)}`);
+export const getValorizado = (filtros) => api.get(`/informes/valorizado${qs(filtros)}`);
+export const getSinMovimiento = (filtros) => api.get(`/informes/sin-movimiento${qs(filtros)}`);
+export const getProcesos = () => api.get('/informes/procesos');
+export const ejecutarProceso = (proceso) => api.post(`/informes/procesos/${proceso.toLowerCase()}/ejecutar`, {});
+export const fijarCostoModelo = (modeloId, costo) => api.put(`/modelos/${modeloId}/costo`, { costo });

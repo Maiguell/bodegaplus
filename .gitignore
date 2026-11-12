@@ -7,10 +7,13 @@ backend/node_modules/
 frontend/dist/
 frontend/.vite/
 
-# Variables de entorno
+# Variables de entorno (solo se versionan las plantillas *.example)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env*.example
+
+# Respaldos de la base de datos
+backend/backups/
 
 # Logs
 *.log

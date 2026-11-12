@@ -50,6 +50,7 @@ router.get('/', authMiddleware, h(async (req, res) => {
              COALESCE(oc.codigo,
                       IF(mv.traslado_id, CONCAT('TR-', LPAD(mv.traslado_id, 4, '0')), NULL),
                       IF(mv.reserva_id, CONCAT('RES-', LPAD(mv.reserva_id, 4, '0')), NULL),
+                      IF(mv.ajuste_id, CONCAT('AJ-', LPAD(mv.ajuste_id, 4, '0')), NULL),
                       mv.referencia,
                       IF(mv.id, CONCAT('MOV-', mv.id), 'Apertura')) AS documento,
              mv.referencia, mv.observacion

@@ -4,11 +4,11 @@
 
 .movimientos-layout {
   display: grid;
-  grid-template-columns: 1fr 1.8fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
   gap: 24px;
   align-items: flex-start;
 }
-@media (max-width: 960px) { .movimientos-layout { grid-template-columns: 1fr; } }
+@media (max-width: 960px) { .movimientos-layout { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---- Formulario ---- */
 .movimiento-form-card { padding: 28px; }

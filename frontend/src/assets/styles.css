@@ -495,7 +495,8 @@ svg {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  /* minmax(0, …): la columna no se estira con tablas anchas; ellas se desplazan dentro de su contenedor */
+  grid-template-columns: 240px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
 }
@@ -761,6 +762,68 @@ svg {
   gap: 12px;
   margin-bottom: 24px;
   flex-wrap: wrap;
+}
+
+/* ---- Celular y tableta (RNF-06) ----
+   El sidebar pasa a ser una barra superior con el menú en una fila desplazable. */
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100dvh;
+  }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px 0;
+    border-right: none;
+    border-bottom: 1px solid var(--clr-ink);
+    overflow: visible;
+  }
+  .sidebar-brand { padding: 0; border-bottom: none; }
+  .sidebar-brand-icon { width: 30px; height: 30px; }
+  .sidebar-brand-sub,
+  .sidebar-section-label,
+  .sidebar-footer > div:not(.sidebar-avatar) { display: none; }
+  .sidebar-footer { margin-left: auto; padding: 0; border-top: none; }
+  .sidebar-avatar { width: 30px; height: 30px; }
+  .sidebar-nav {
+    order: 3;
+    flex: 1 0 100%;
+    display: flex;
+    gap: 2px;
+    padding: 6px 0 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .nav-item {
+    width: auto;
+    white-space: nowrap;
+    padding: 8px 10px;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    font-size: var(--fs-small);
+  }
+  .nav-item.active { border-bottom-color: var(--clr-accent); }
+  .page-wrapper { padding: 16px; }
+  .page-header { flex-direction: column; margin-bottom: 20px; padding-bottom: 14px; }
+  .page-title { font-size: var(--fs-h2); }
+  .data-table { font-size: var(--fs-small); }
+}
+
+/* ---- Impresión / Guardar como PDF (HU17) ---- */
+@media print {
+  .sidebar, .no-print, #toast-container, .modal-overlay { display: none !important; }
+  .app-shell { display: block; height: auto; overflow: visible; }
+  .main-content { overflow: visible; height: auto; }
+  .page-wrapper { padding: 0; }
+  body { background: #fff; }
+  .card { break-inside: avoid; border-color: #999; }
+  .data-table tr { break-inside: avoid; }
 }
 
 /* ---- Movimiento reducido ---- */

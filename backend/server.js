@@ -6,8 +6,9 @@
 
 'use strict';
 
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+const fs      = require('fs');
+const path    = require('path');
+const config  = require('./lib/config'); // HT08: carga .env.<NODE_ENV> y valida secretos
 const express = require('express');
 const cors    = require('cors');
 const bcrypt  = require('bcryptjs');
@@ -16,13 +17,21 @@ const { buildSku } = require('./utils/sku');
 const { HttpError, h } = require('./lib/http');
 const { generarToken, authMiddleware, soloAdmin } = require('./lib/auth');
 const inv = require('./lib/inventario');
+const tareas = require('./lib/tareas');
 const tienda = require('./routes/tienda');
 
 const app  = express();
-const PORT = process.env.PORT || 8080;
+const PORT = config.port;
 
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+app.set('trust proxy', 1); // detrás del proxy HTTPS del hosting
+app.use(cors({ origin: config.corsOrigins, credentials: true }));
 app.use(express.json());
+
+/** GET /api/salud - Comprobación de vida para el hosting (sin autenticación). */
+app.get('/api/salud', h(async (req, res) => {
+  await db().query('SELECT 1');
+  res.json({ ok: true, ambiente: config.env });
+}));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -192,10 +201,12 @@ app.get('/api/inventario', authMiddleware, h(async (req, res) => {
 
 // ── Movimientos ───────────────────────────────────────────────────────────────
 
-/** Tipos que se registran desde el formulario general (los demás tienen su propio endpoint). */
-const TIPOS = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'AJUSTE', 'VENTA'];
+/**
+ * Tipos que se registran desde el formulario general (los demás tienen su propio endpoint).
+ * Los ajustes van por /api/ajustes: quedan pendientes y solo mueven stock al aprobarse (HU11).
+ */
+const TIPOS = ['ENTRADA', 'DESPACHO', 'DEVOLUCION', 'VENTA'];
 const MOTIVOS_DEVOLUCION = ['TALLA_INCORRECTA', 'DEFECTO', 'SOBRANTE', 'OTRO'];
-const MOTIVOS_AJUSTE = ['CONTEO', 'MERMA', 'OTRO'];
 
 app.get('/api/movimientos', authMiddleware, h(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
@@ -225,16 +236,14 @@ app.get('/api/movimientos', authMiddleware, h(async (req, res) => {
  *   ENTRADA    → proveedor → bodega (entrada directa; contra OC usar /api/ordenes-compra/:id/recepcion)
  *   DESPACHO   → bodega → localId
  *   DEVOLUCION → localId → bodega (motivo requerido)
- *   AJUSTE     → sobre ubicacionId (localId o bodega); cantidad con signo (solo admin)
  *   VENTA      → ubicacionId → cliente (HU06). Sin stock: 409 con las sedes que sí tienen.
  * Cada línea pasa por el motor de inventario (lib/inventario.js), que deja traza en el kardex.
  */
 app.post('/api/movimientos', authMiddleware, h(async (req, res) => {
   const { tipo, localId, ubicacionId, proveedorId, motivo, referencia, observacion, detalle } = req.body ?? {};
+  if (tipo === 'AJUSTE') throw new HttpError(400, 'Los ajustes se registran en Ajustes y requieren aprobación del jefe de bodega.');
   if (!TIPOS.includes(tipo)) throw new HttpError(400, 'Tipo de movimiento inválido.');
-  if (tipo === 'AJUSTE' && req.user.rol !== 'ADMIN') throw new HttpError(403, 'Solo un administrador puede hacer ajustes.');
-  const lineas = inv.consolidarLineas(detalle, { permitirNegativos: tipo === 'AJUSTE' });
-  if (lineas.some(([, c]) => c === 0)) throw new HttpError(400, 'Las líneas de una misma variante se anulan entre sí.');
+  const lineas = inv.consolidarLineas(detalle);
 
   const [[bodega]] = await db().query("SELECT id FROM ubicaciones WHERE tipo = 'BODEGA' AND activo = 1 LIMIT 1");
   let origenId = null, destinoId = null;
@@ -243,9 +252,6 @@ app.post('/api/movimientos', authMiddleware, h(async (req, res) => {
     destinoId = bodega.id;
   } else if (tipo === 'VENTA') {
     origenId = (await inv.sedeActiva(db(), ubicacionId)).id;
-  } else if (tipo === 'AJUSTE') {
-    if (!MOTIVOS_AJUSTE.includes(motivo)) throw new HttpError(400, 'Motivo de ajuste inválido.');
-    destinoId = Number(ubicacionId) || bodega.id;
   } else {
     const [[local]] = await db().query("SELECT id FROM ubicaciones WHERE id = ? AND tipo = 'LOCAL' AND activo = 1", [localId ?? 0]);
     if (!local) throw new HttpError(400, 'Selecciona un local válido.');
@@ -261,7 +267,7 @@ app.post('/api/movimientos', authMiddleware, h(async (req, res) => {
   const id = await inv.enTransaccion(async (conn) => {
     const movId = await inv.insertarMovimiento(conn, {
       tipo, usuarioId: req.user.id, proveedorId: tipo === 'ENTRADA' ? proveedorId || null : null, origenId, destinoId,
-      motivo: tipo === 'DEVOLUCION' || tipo === 'AJUSTE' ? motivo : null, referencia, observacion,
+      motivo: tipo === 'DEVOLUCION' ? motivo : null, referencia, observacion,
     });
     for (const [varianteId, cant] of lineas) {
       await inv.insertarDetalle(conn, movId, varianteId, cant);
@@ -279,6 +285,20 @@ app.use('/api/ordenes-compra', require('./routes/compras'));
 app.use('/api/kardex', require('./routes/kardex'));
 app.use('/api/traslados', require('./routes/traslados'));
 app.use('/api', tienda.router);
+
+// ── Sprint 5 y 6: control, alertas e informes ─────────────────────────────────
+
+app.use('/api', require('./routes/control'));
+app.use('/api/informes', require('./routes/informes'));
+
+/** PUT /api/modelos/:id/costo { costo } - Costo unitario de todas las variantes del modelo (HU17, admin). */
+app.put('/api/modelos/:id/costo', authMiddleware, soloAdmin, h(async (req, res) => {
+  const costo = Number(req.body?.costo);
+  if (!Number.isFinite(costo) || costo < 0) throw new HttpError(400, 'Costo inválido.');
+  const [r] = await db().query('UPDATE variantes SET costo = ? WHERE modelo_id = ? AND activo = 1', [costo, req.params.id]);
+  if (!r.affectedRows) throw new HttpError(404, 'El modelo no tiene variantes activas.');
+  res.json({ modeloId: Number(req.params.id), costo, variantes: r.affectedRows });
+}));
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -319,10 +339,22 @@ app.get('/api/dashboard/metrics', authMiddleware, h(async (req, res) => {
     SELECT (SELECT COUNT(*) FROM traslados WHERE estado = 'EN_TRANSITO') AS trasladosEnTransito,
            (SELECT COUNT(*) FROM traslados WHERE novedad_estado = 'PENDIENTE') AS novedadesPendientes,
            (SELECT COUNT(*) FROM ordenes_compra WHERE estado IN ('PENDIENTE','RECIBIDA_PARCIAL')) AS ordenesAbiertas,
-           (SELECT COUNT(*) FROM reservas WHERE estado = 'ACTIVA') AS reservasActivas`);
+           (SELECT COUNT(*) FROM reservas WHERE estado = 'ACTIVA') AS reservasActivas,
+           (SELECT COUNT(*) FROM alertas WHERE estado = 'ACTIVA') AS alertasActivas,
+           (SELECT COUNT(*) FROM ajustes WHERE estado = 'PENDIENTE') AS ajustesPendientes,
+           (SELECT COUNT(*) FROM conteos WHERE estado = 'ABIERTO') AS conteosAbiertos`);
 
   res.json({ ...tot, ...hoy, ...pend, porUbicacion, bajoStock });
 }));
+
+app.use('/api', (req, res) => res.status(404).json({ message: 'Ruta no encontrada.' }));
+
+// ── Frontend (HT07): en producción el backend sirve el build de Vite en el mismo dominio ──
+
+if (fs.existsSync(path.join(config.frontendDist, 'index.html'))) {
+  app.use(express.static(config.frontendDist, { maxAge: '1h', index: false }));
+  app.get('*', (req, res) => res.sendFile(path.join(config.frontendDist, 'index.html')));
+}
 
 // ── Errores ───────────────────────────────────────────────────────────────────
 
@@ -340,20 +372,10 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 // ── Iniciar ───────────────────────────────────────────────────────────────────
 
-/** HU14: libera cada minuto las reservas vencidas. */
-const programarVencimientoReservas = () => {
-  const tick = () => tienda.liberarReservasVencidas()
-    .then((n) => { if (n) console.log(`🔓 ${n} reserva(s) vencida(s) liberada(s).`); })
-    .catch((err) => console.error('Error liberando reservas vencidas:', err.message));
-  tick();
-  setInterval(tick, 60_000).unref();
-};
-
 init()
   .then(() => app.listen(PORT, () => {
-    programarVencimientoReservas();
-    console.log(`\n👟 Backend Bodega Sneakers en http://localhost:${PORT}`);
-    console.log('   admin / admin123   (Administrador)');
-    console.log('   bodega / bodega123 (Operador)\n');
+    tareas.iniciar({ liberarReservas: tienda.liberarReservasVencidas }); // HT06
+    console.log(`\n👟 Backend Bodega Sneakers (${config.env}) en http://localhost:${PORT} · base ${config.db.database}`);
+    if (!config.produccion) console.log('   Usuarios de ejemplo: admin / bodega (claves en SEED_*_PASSWORD o las de demo)\n');
   }))
   .catch((err) => { console.error('❌ No se pudo iniciar la base de datos:', err.message); process.exit(1); });

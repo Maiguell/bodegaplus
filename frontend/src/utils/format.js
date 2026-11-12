@@ -62,7 +62,23 @@ export const ESTADOS = {
   VENDIDA:              { label: 'Vendida',             badge: 'badge-success' },
   VENCIDA:              { label: 'Vencida',             badge: 'badge-warning' },
   CANCELADA:            { label: 'Cancelada',           badge: 'badge-danger' },
+  APROBADO:             { label: 'Aprobado',            badge: 'badge-success' },
+  RECHAZADO:            { label: 'Rechazado',           badge: 'badge-danger' },
+  ABIERTO:              { label: 'Abierto',             badge: 'badge-info' },
+  CERRADO:              { label: 'Cerrado',             badge: 'badge-success' },
+  CANCELADO:            { label: 'Cancelado',           badge: 'badge-danger' },
+  RESUELTA:             { label: 'Resuelta',            badge: 'badge-success' },
+  OK:                   { label: 'OK',                  badge: 'badge-success' },
+  ERROR:                { label: 'Error',               badge: 'badge-danger' },
+  EN_CURSO:             { label: 'En curso',            badge: 'badge-info' },
 };
+
+/** "PENDIENTE" para ajustes se muestra como en el criterio de aceptación (HU11). */
+export const badgeAjuste = (estado) =>
+  estado === 'PENDIENTE' ? '<span class="badge badge-warning">Pendiente de aprobación</span>' : badgeEstado(estado);
+
+export const hoyISO = () => new Date().toLocaleDateString('en-CA');
+export const haceDiasISO = (n) => new Date(Date.now() - n * 864e5).toLocaleDateString('en-CA');
 
 export const badgeEstado = (estado) => {
   const e = ESTADOS[estado] ?? { label: estado, badge: 'badge-info' };
@@ -92,7 +108,11 @@ export const descargarCSV = (nombre, encabezados, filas) => {
 export const MOTIVOS = {
   TALLA_INCORRECTA: 'Talla incorrecta', DEFECTO: 'Defecto de fábrica', SOBRANTE: 'Sobrante',
   CONTEO: 'Conteo físico', MERMA: 'Merma / daño', OTRO: 'Otro',
+  AVERIA: 'Avería', PERDIDA: 'Pérdida', ERROR_CONTEO: 'Error de conteo',
 };
+
+/** Causales de ajuste (HU11). */
+export const CAUSALES = { AVERIA: 'Avería', PERDIDA: 'Pérdida', ERROR_CONTEO: 'Error de conteo', OTRO: 'Otra' };
 
 /** Etiqueta corta de talla: "EU 42 · US 9" */
 export const tallaLabel = (t) => `EU ${t.eu} · US ${t.us}`;

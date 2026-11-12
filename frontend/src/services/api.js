@@ -5,8 +5,11 @@
  * de verdad para la URL base, headers y manejo de errores HTTP.
  */
 
-/** URL base del backend. Puede sobreescribirse mediante variable de entorno de Vite. */
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api';
+/**
+ * URL base del backend. En producción el backend sirve el frontend en el mismo dominio (HT07),
+ * así que basta la ruta relativa. Se puede sobreescribir con VITE_API_URL al compilar.
+ */
+const BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:8080/api');
 
 /**
  * Recupera el token JWT almacenado en sessionStorage.

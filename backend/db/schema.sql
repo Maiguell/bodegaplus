@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS variantes (
   sku VARCHAR(40) NOT NULL UNIQUE,
   codigo_barras VARCHAR(40) NULL UNIQUE,
   precio DECIMAL(12,2) NOT NULL DEFAULT 0,
-  stock_minimo INT NOT NULL DEFAULT 2,
+  costo DECIMAL(12,2) NULL,                      -- HU17: costo unitario para valorizar
+  stock_minimo INT NOT NULL DEFAULT 2,           -- mínimo por defecto (HU15); se puede ajustar por sede
   activo TINYINT(1) NOT NULL DEFAULT 1,
   FOREIGN KEY (modelo_id) REFERENCES modelos(id),
   FOREIGN KEY (color_id) REFERENCES colores(id),
@@ -190,12 +191,13 @@ CREATE TABLE IF NOT EXISTS movimientos (
   proveedor_id INT NULL,
   origen_id INT NULL,
   destino_id INT NULL,
-  motivo ENUM('TALLA_INCORRECTA','DEFECTO','SOBRANTE','CONTEO','MERMA','OTRO') NULL,
+  motivo ENUM('TALLA_INCORRECTA','DEFECTO','SOBRANTE','CONTEO','MERMA','OTRO','AVERIA','PERDIDA','ERROR_CONTEO') NULL,
   referencia VARCHAR(60) NULL,
   observacion VARCHAR(255) NULL,
   orden_compra_id INT NULL,
   traslado_id INT NULL,
   reserva_id INT NULL,
+  ajuste_id INT NULL,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
   FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
   FOREIGN KEY (origen_id) REFERENCES ubicaciones(id),
@@ -225,4 +227,113 @@ CREATE TABLE IF NOT EXISTS kardex (
   FOREIGN KEY (variante_id) REFERENCES variantes(id),
   FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
   INDEX idx_kardex_variante (variante_id, id)
+);
+
+-- HU12: Conteos físicos. Al iniciar se congela el saldo del sistema de cada variante de la sede.
+CREATE TABLE IF NOT EXISTS conteos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  ubicacion_id INT NOT NULL,
+  estado ENUM('ABIERTO','CERRADO','CANCELADO') NOT NULL DEFAULT 'ABIERTO',
+  usuario_id INT NOT NULL,
+  fecha_inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  fecha_cierre DATETIME NULL,
+  observacion VARCHAR(255) NULL,
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS conteo_detalle (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  conteo_id INT NOT NULL,
+  variante_id INT NOT NULL,
+  saldo_sistema INT NOT NULL,                    -- congelado al iniciar
+  cantidad_contada INT NULL,                     -- NULL = aún no contada
+  FOREIGN KEY (conteo_id) REFERENCES conteos(id),
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  UNIQUE KEY uq_conteo_variante (conteo_id, variante_id)
+);
+
+-- HU11: Ajustes con causal; solo mueven stock cuando el jefe de bodega (admin) los aprueba.
+CREATE TABLE IF NOT EXISTS ajustes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  ubicacion_id INT NOT NULL,
+  causal ENUM('AVERIA','PERDIDA','ERROR_CONTEO','OTRO') NOT NULL,
+  observacion VARCHAR(255) NOT NULL,
+  estado ENUM('PENDIENTE','APROBADO','RECHAZADO') NOT NULL DEFAULT 'PENDIENTE',
+  usuario_id INT NOT NULL,
+  fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resuelto_por INT NULL,
+  fecha_resolucion DATETIME NULL,
+  comentario_resolucion VARCHAR(255) NULL,
+  conteo_id INT NULL,                            -- generado por un conteo físico
+  movimiento_id INT NULL,                        -- movimiento AJUSTE al aprobar
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+  FOREIGN KEY (resuelto_por) REFERENCES usuarios(id),
+  FOREIGN KEY (conteo_id) REFERENCES conteos(id)
+);
+
+CREATE TABLE IF NOT EXISTS ajuste_detalle (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  ajuste_id INT NOT NULL,
+  variante_id INT NOT NULL,
+  cantidad INT NOT NULL,                         -- diferencia con signo
+  FOREIGN KEY (ajuste_id) REFERENCES ajustes(id),
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  UNIQUE KEY uq_ajuste_variante (ajuste_id, variante_id),
+  CONSTRAINT chk_ajuste_no_cero CHECK (cantidad <> 0)
+);
+
+-- HU15: Mínimo por variante y sede (si no hay fila, aplica variantes.stock_minimo)
+CREATE TABLE IF NOT EXISTS stock_minimos (
+  variante_id INT NOT NULL,
+  ubicacion_id INT NOT NULL,
+  minimo INT NOT NULL,
+  PRIMARY KEY (variante_id, ubicacion_id),
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  CONSTRAINT chk_minimo CHECK (minimo >= 0)
+);
+
+-- HU15: Alertas de stock bajo el mínimo. `abierta` = 1 mientras está activa (NULL al resolver),
+-- así el índice único garantiza una sola alerta activa por variante y sede.
+CREATE TABLE IF NOT EXISTS alertas (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  variante_id INT NOT NULL,
+  ubicacion_id INT NOT NULL,
+  stock INT NOT NULL,
+  minimo INT NOT NULL,
+  estado ENUM('ACTIVA','RESUELTA') NOT NULL DEFAULT 'ACTIVA',
+  abierta TINYINT NULL DEFAULT 1,
+  creada_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resuelta_en DATETIME NULL,
+  FOREIGN KEY (variante_id) REFERENCES variantes(id),
+  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
+  UNIQUE KEY uq_alerta_abierta (variante_id, ubicacion_id, abierta)
+);
+
+-- HT06: Indicadores precalculados por el proceso nocturno (rotación y días sin movimiento)
+CREATE TABLE IF NOT EXISTS indicadores_variante (
+  variante_id INT NOT NULL,
+  ubicacion_id INT NOT NULL,
+  stock INT NOT NULL,
+  ultimo_movimiento DATETIME NULL,
+  dias_sin_movimiento INT NOT NULL,
+  vendidas_30d INT NOT NULL DEFAULT 0,
+  vendidas_90d INT NOT NULL DEFAULT 0,
+  calculado_en DATETIME NOT NULL,
+  PRIMARY KEY (variante_id, ubicacion_id)
+);
+
+-- HT06 / HT08: Registro de ejecución de procesos programados
+CREATE TABLE IF NOT EXISTS ejecuciones_proceso (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  proceso VARCHAR(40) NOT NULL,
+  origen ENUM('PROGRAMADO','MANUAL') NOT NULL DEFAULT 'PROGRAMADO',
+  inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  fin DATETIME NULL,
+  estado ENUM('EN_CURSO','OK','ERROR') NOT NULL DEFAULT 'EN_CURSO',
+  filas INT NULL,
+  mensaje VARCHAR(500) NULL,
+  INDEX idx_proceso (proceso, inicio)
 );

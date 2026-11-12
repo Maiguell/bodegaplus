@@ -32,12 +32,19 @@ const MODELOS = [
 /** Genera stock inicial determinista para que la demo se vea variada (incluye algunos agotados). */
 const stockDemo = (v, u) => ((v * 7 + u * 13) % 9 === 0 ? 0 : ((v * 5 + u * 11) % 12) + (u === 1 ? 6 : 1));
 
-async function seed(pool) {
+/**
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {{adminPassword: string|null, operadorPassword: string|null}} claves - Vienen de lib/config (HT08).
+ */
+async function seed(pool, claves) {
+  if (!claves?.adminPassword || !claves?.operadorPassword) {
+    throw new Error('Define SEED_ADMIN_PASSWORD y SEED_OPERADOR_PASSWORD para crear los usuarios iniciales.');
+  }
   // Usuarios
   const hash = (p) => bcrypt.hashSync(p, 10);
   await pool.query('INSERT INTO usuarios (usuario, password_hash, nombre, rol) VALUES ?', [[
-    ['admin',  hash('admin123'),  'Administrador',   'ADMIN'],
-    ['bodega', hash('bodega123'), 'Operador Bodega', 'OPERADOR'],
+    ['admin',  hash(claves.adminPassword),    'Administrador',   'ADMIN'],
+    ['bodega', hash(claves.operadorPassword), 'Operador Bodega', 'OPERADOR'],
   ]]);
 
   // Ubicaciones: bodega central y 2 locales
@@ -72,9 +79,10 @@ async function seed(pool) {
       [marcas[marca], cats[cat], nombre, genero, estilo, precio]);
     for (const color of colores) {
       for (const t of tallas.filter((x) => x.genero === genero)) {
+        // Costo de demo: 55 % del precio de venta (HU17)
         await pool.query(
-          'INSERT INTO variantes (modelo_id, color_id, talla_id, sku, precio, stock_minimo) VALUES (?,?,?,?,?,?)',
-          [res.insertId, cols[color], t.id, buildSku(marca, nombre, color, t.eu), precio, 3]);
+          'INSERT INTO variantes (modelo_id, color_id, talla_id, sku, precio, costo, stock_minimo) VALUES (?,?,?,?,?,?,?)',
+          [res.insertId, cols[color], t.id, buildSku(marca, nombre, color, t.eu), precio, Math.round(precio * 0.55), 3]);
       }
     }
   }

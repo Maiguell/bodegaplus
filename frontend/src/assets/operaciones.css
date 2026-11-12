@@ -5,11 +5,12 @@
 
 .op-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) 1.8fr;
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 1.8fr);
   gap: 24px;
   align-items: flex-start;
 }
-@media (max-width: 960px) { .op-layout { grid-template-columns: 1fr; } }
+.op-layout > * { min-width: 0; }
+@media (max-width: 960px) { .op-layout { grid-template-columns: minmax(0, 1fr); } }
 
 .op-card { padding: 24px; }
 .op-card + .op-card { margin-top: 24px; }

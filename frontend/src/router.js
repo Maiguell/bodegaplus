@@ -114,6 +114,30 @@ export const setupRouter = () => {
       initKardex(match?.params ?? {});
     })
 
+    // ── Sprint 5: ajustes (HU11), conteos (HU12) y alertas (HU15) ───────
+    .on('/ajustes', async () => {
+      if (!requireAuth()) return;
+      const { initAjustes } = await import('./views/ajustes/ajustes.js');
+      initAjustes();
+    })
+    .on('/conteos', async () => {
+      if (!requireAuth()) return;
+      const { initConteos } = await import('./views/conteos/conteos.js');
+      initConteos();
+    })
+    .on('/alertas', async () => {
+      if (!requireAuth()) return;
+      const { initAlertas } = await import('./views/alertas/alertas.js');
+      initAlertas();
+    })
+
+    // ── Sprint 6: informes (HU16 / HU17 / HU18) y procesos ──────────────
+    .on('/informes', async () => {
+      if (!requireAuth()) return;
+      const { initInformes } = await import('./views/informes/informes.js');
+      initInformes();
+    })
+
     // ── Reportes ────────────────────────────────────────────────────────
     .on('/reportes', async () => {
       if (!requireAuth()) return;
